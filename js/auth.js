@@ -132,7 +132,7 @@
           <div class="auth-error" id="authError" hidden></div>
           <button class="btn btn-primary btn-block" type="submit" id="authSubmit">Entrar</button>
         </form>
-        <p class="auth-foot">Tus datos se guardan en <b>tu propio servidor</b>. Local y privado.</p>
+        <p class="auth-foot">Tus datos se guardan <b>de forma segura en nuestro servidor</b>.</p>
       </div>`;
     document.body.appendChild(el);
 

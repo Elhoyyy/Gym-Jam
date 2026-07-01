@@ -10,7 +10,9 @@
   /* --- Draft session (work in progress) --------------------- */
   let draft = null; // {id?, date, groups:[], notes, entries:[{exerciseId, sets:[]}]}
   let currentView = "today";
-  let statsExercise = null; // selected exercise id for progression chart
+  let statsExercise = null; // selected exercise id for strength progression chart
+  let statsTab = "fuerza";  // "fuerza" | "cardio"
+  let cardioExercise = null; // selected exercise id for cardio pace chart
   let libFilter = "all";
 
   /* --- Utils ------------------------------------------------ */
@@ -234,11 +236,13 @@
   // Fields shown per exercise type: [{key, placeholder, step}]
   function setFields(group) {
     return isCardio(group)
-      ? [{ key: "min", ph: "min", step: "1" }, { key: "km", ph: "km", step: "0.1" }]
+      ? [{ key: "min", ph: "min", step: "1" }, { key: "km", ph: "opcional", step: "0.1" }]
       : [{ key: "weight", ph: "kg", step: "0.5" }, { key: "reps", ph: "reps", step: "1" }];
   }
   function setHeadLabels(group) {
-    return isCardio(group) ? ["Tiempo (min)", "Distancia (km)"] : ["Peso (kg)", "Reps"];
+    return isCardio(group)
+      ? ["Tiempo (min)", 'Distancia (km) <span class="opt">opcional</span>']
+      : ["Peso (kg)", "Reps"];
   }
   function setHasData(group, s) {
     return isCardio(group)
@@ -324,6 +328,7 @@
           <div class="set-row set-head"><span></span><span>${labA}</span><span>${labB}</span><span></span><span></span></div>
           ${setsHtml}
           <button class="add-set-btn" data-action="add-set">+ Añadir serie</button>
+          ${cardio ? '<div class="set-hint">La distancia es opcional — registra el tiempo y, si quieres, completa los km al terminar.</div>' : ""}
         </div>
       </div>`;
     }).join("");
@@ -924,16 +929,42 @@
       return;
     }
 
-    const stats = computeStats(workouts);
+    const hasCardio = workouts.some((w) => (w.entries || []).some((en) => {
+      const ex = DB.exerciseById(en.exerciseId); return ex && ex.group === "cardio";
+    }));
+    const hasStrength = workouts.some((w) => (w.entries || []).some((en) => {
+      const ex = DB.exerciseById(en.exerciseId); return ex && ex.group !== "cardio";
+    }));
+    if (statsTab === "cardio" && !hasCardio && hasStrength) statsTab = "fuerza";
+    if (statsTab === "fuerza" && !hasStrength && hasCardio) statsTab = "cardio";
 
     main.innerHTML = `
       <div class="view">
         <div class="view-head">
           <span class="eyebrow">Progreso</span>
           <h1>Estadísticas</h1>
-          <p class="subtitle">Tu rendimiento de un vistazo. Los números no mienten. 📈</p>
+          <p class="subtitle">Tu rendimiento de un vistazo. Los números no mienten.</p>
         </div>
+        <div class="seg" id="statsSeg">
+          <button class="seg-btn ${statsTab === "fuerza" ? "is-active" : ""}" data-tab="fuerza">Fuerza</button>
+          <button class="seg-btn ${statsTab === "cardio" ? "is-active" : ""}" data-tab="cardio">Cardio</button>
+        </div>
+        <div id="statsBody"></div>
+      </div>`;
 
+    $$("#statsSeg .seg-btn").forEach((b) => b.addEventListener("click", () => {
+      if (statsTab === b.dataset.tab) return;
+      statsTab = b.dataset.tab;
+      renderStats();
+    }));
+
+    if (statsTab === "cardio") fillCardioStats(workouts);
+    else fillStrengthStats(workouts);
+  }
+
+  function fillStrengthStats(workouts) {
+    const stats = computeStats(workouts);
+    $("#statsBody").innerHTML = `
         <div class="stat-grid">
           ${statCard("Volumen total", fmtNum(stats.totalVolume), "kg movidos")}
           ${statCard("Entrenos", stats.count, "sesiones", stats.weekDelta)}
@@ -981,17 +1012,88 @@
               </div>
               <div class="record-val"><b>${fmtNum(r.maxWeight)} kg</b><span>mejor marca</span></div>
             </div>`).join("") : '<div class="text-dim">Registra más series para ver tus records.</div>'}
-        </div>
-      </div>`;
+        </div>`;
 
-    // progression selector
     const sel = $("#progExercise");
     if (sel) {
       sel.value = statsExercise || sel.value;
       sel.addEventListener("change", () => {
         statsExercise = sel.value;
-        const series = progressionSeries(sel.value);
-        $("#progChart").innerHTML = Charts.lineChart(series, { color: "#2e7d46", color2: "#2f6690" });
+        $("#progChart").innerHTML = Charts.lineChart(progressionSeries(sel.value), { color: "#2e7d46", color2: "#2f6690" });
+      });
+    }
+  }
+
+  /* ---------- Cardio dashboard ------------------------------ */
+  const CARDIO_PALETTE = ["#a5324a", "#c07a1e", "#2f6690", "#3f7350", "#6b53a3", "#1f8a80", "#b0572f", "#6f8b2f"];
+
+  function fillCardioStats(workouts) {
+    const cs = computeCardioStats(workouts);
+    const body = $("#statsBody");
+    if (!cs.sessions) {
+      body.innerHTML = `<div class="empty-hint"><span class="emoji">🏃</span>Aún no has registrado cardio.<br>Añade un ejercicio de <b>Cardio</b> con tiempo o distancia y verás aquí tu progreso.</div>`;
+      return;
+    }
+    body.innerHTML = `
+        <div class="stat-grid">
+          ${statCard("Distancia total", fmtNum(Math.round(cs.totalKm * 10) / 10), "km recorridos")}
+          ${statCard("Tiempo total", fmtDuration(cs.totalMin), "en movimiento")}
+          ${statCard("Sesiones", cs.sessions, "de cardio")}
+          ${statCard("Ritmo medio", fmtPace(cs.avgPace), "min/km")}
+        </div>
+
+        <div class="chart-grid">
+          <div class="card chart-card">
+            <div class="chart-head"><h3>Distancia por sesión</h3><span class="hint">km</span></div>
+            <div class="chart-wrap">${Charts.lineChart(cs.distanceSeries, { color: "#a5324a", color2: "#c07a1e" })}</div>
+          </div>
+
+          <div class="card chart-card">
+            <div class="chart-head"><h3>Reparto por actividad</h3><span class="hint">${cs.useKm ? "por distancia" : "por tiempo"}</span></div>
+            <div class="row wrap" style="gap:18px;align-items:center;justify-content:center">
+              <div style="max-width:220px;flex:1;min-width:180px">${Charts.donutChart(cs.activityDist, { centerLabel: cs.useKm ? fmtNum(Math.round(cs.totalKm)) : String(Math.round(cs.totalMin)), centerSub: cs.useKm ? "km" : "min" })}</div>
+              <div class="legend" style="flex-direction:column;gap:8px">${cs.activityDist.map((d) => `<div class="legend-item"><span class="legend-dot" style="background:${d.color}"></span><b>${escapeHtml(d.label)}</b> · ${fmtNum(d.value)} ${cs.useKm ? "km" : "min"}</div>`).join("")}</div>
+            </div>
+          </div>
+
+          <div class="card chart-card">
+            <div class="chart-head">
+              <h3>Progresión de ritmo</h3>
+              <select class="select select-inline" id="paceExercise">${cs.exerciseOptions}</select>
+            </div>
+            <div class="chart-wrap" id="paceChart">${Charts.lineChart(cs.paceSeries, { color: "#2f6690", color2: "#1f8a80" })}</div>
+            <div class="legend"><div class="legend-item"><span class="legend-dot" style="background:#2f6690"></span>min/km · cuanto más bajo, mejor ↓</div></div>
+          </div>
+
+          <div class="card chart-card">
+            <div class="chart-head"><h3>Distancia semanal</h3><span class="hint">Últimas 8 semanas · km</span></div>
+            <div class="chart-wrap">${Charts.barChart(cs.weeklyDistance, { color: "#a5324a" })}</div>
+          </div>
+        </div>
+
+        <div class="card mt-24">
+          <div class="section-title mb-16">🏆 Records de cardio <span class="count-pill">${cs.records.length}</span></div>
+          ${cs.records.length ? cs.records.map((r, i) => {
+            const meta = [];
+            if (r.bestPace) meta.push("mejor ritmo " + fmtPace(r.bestPace) + " /km");
+            if (r.maxKm && r.maxMin) meta.push("sesión más larga " + fmtDuration(r.maxMin));
+            return `<div class="record-row">
+              <div class="record-rank ${i < 3 ? "top" : ""}">${i + 1}</div>
+              <div>
+                <div class="record-name">${escapeHtml(r.name)}</div>
+                <div class="record-meta">${meta.join(" · ") || "—"}</div>
+              </div>
+              <div class="record-val"><b>${r.maxKm ? fmtNum(Math.round(r.maxKm * 10) / 10) + " km" : fmtDuration(r.maxMin)}</b><span>${r.maxKm ? "más lejos" : "más tiempo"}</span></div>
+            </div>`;
+          }).join("") : '<div class="text-dim">Registra más cardio para ver tus records.</div>'}
+        </div>`;
+
+    const sel = $("#paceExercise");
+    if (sel) {
+      sel.value = cardioExercise || sel.value;
+      sel.addEventListener("change", () => {
+        cardioExercise = sel.value;
+        $("#paceChart").innerHTML = Charts.lineChart(cardioPaceSeries(sel.value), { color: "#2f6690", color2: "#1f8a80" });
       });
     }
   }
@@ -1077,6 +1179,134 @@
       });
     });
     return series.slice(-14);
+  }
+
+  /* ---------- Cardio computations ---------- */
+  function dateShort(iso) {
+    return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "numeric" });
+  }
+  function fmtDuration(min) {
+    min = Math.round(Number(min) || 0);
+    if (min < 60) return min + " min";
+    const h = Math.floor(min / 60), m = min % 60;
+    return h + "h" + (m ? " " + String(m).padStart(2, "0") : "");
+  }
+  function fmtPace(p) {
+    if (!p || !isFinite(p)) return "—";
+    const m = Math.floor(p), s = Math.round((p - m) * 60);
+    return (s === 60 ? m + 1 : m) + ":" + String(s === 60 ? 0 : s).padStart(2, "0");
+  }
+  // Distance/time totals of the cardio entries in a workout.
+  function workoutCardio(w) {
+    let km = 0, min = 0;
+    (w.entries || []).forEach((en) => {
+      const ex = DB.exerciseById(en.exerciseId);
+      if (!ex || ex.group !== "cardio") return;
+      en.sets.forEach((s) => { km += Number(s.km) || 0; min += Number(s.min) || 0; });
+    });
+    return { km, min };
+  }
+
+  function computeCardioStats(workouts) {
+    const asc = [...workouts].sort((a, b) => (a.date < b.date ? -1 : 1));
+    let totalKm = 0, totalMin = 0, paceKm = 0, paceMin = 0;
+    const cardioSessions = [];
+    asc.forEach((w) => {
+      const { km, min } = workoutCardio(w);
+      if (km > 0 || min > 0) { cardioSessions.push({ w, km, min }); totalKm += km; totalMin += min; }
+      (w.entries || []).forEach((en) => {
+        const ex = DB.exerciseById(en.exerciseId);
+        if (!ex || ex.group !== "cardio") return;
+        en.sets.forEach((s) => { if ((Number(s.km) || 0) > 0) { paceKm += Number(s.km); paceMin += Number(s.min) || 0; } });
+      });
+    });
+    const sessions = cardioSessions.length;
+    const avgPace = paceKm > 0 ? paceMin / paceKm : 0;
+
+    const distanceSeries = cardioSessions.filter((c) => c.km > 0).slice(-14)
+      .map((c) => ({ label: dateShort(c.w.date), value: Math.round(c.km * 10) / 10 }));
+
+    const weeklyDistance = computeWeeklyCardio(asc);
+
+    // distribution by activity (km, or minutes if no distance at all)
+    const totals = {};
+    asc.forEach((w) => (w.entries || []).forEach((en) => {
+      const ex = DB.exerciseById(en.exerciseId);
+      if (!ex || ex.group !== "cardio") return;
+      if (!totals[ex.id]) totals[ex.id] = { km: 0, min: 0 };
+      en.sets.forEach((s) => { totals[ex.id].km += Number(s.km) || 0; totals[ex.id].min += Number(s.min) || 0; });
+    }));
+    const useKm = totalKm > 0;
+    const activityDist = Object.entries(totals)
+      .map(([id, t]) => ({ label: (DB.exerciseById(id) || {}).name || "—", value: Math.round((useKm ? t.km : t.min) * 10) / 10 }))
+      .filter((d) => d.value > 0)
+      .sort((a, b) => b.value - a.value)
+      .map((d, i) => ({ ...d, color: CARDIO_PALETTE[i % CARDIO_PALETTE.length] }));
+
+    const usedIds = [...new Set(asc.flatMap((w) => (w.entries || []).map((en) => en.exerciseId)))];
+    const usedEx = usedIds.map((id) => DB.exerciseById(id)).filter((e) => e && e.group === "cardio");
+    usedEx.sort((a, b) => a.name.localeCompare(b.name));
+    const exerciseOptions = usedEx.map((e) => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join("");
+    if (!cardioExercise || !usedEx.find((e) => e.id === cardioExercise)) {
+      cardioExercise = usedEx.length ? usedEx[0].id : null;
+    }
+    const paceSeries = cardioExercise ? cardioPaceSeries(cardioExercise) : [];
+    const records = computeCardioRecords(asc);
+
+    return { totalKm, totalMin, sessions, avgPace, distanceSeries, weeklyDistance, activityDist, useKm, exerciseOptions, paceSeries, records };
+  }
+
+  function cardioPaceSeries(exerciseId) {
+    const asc = DB.sortedWorkouts().sort((a, b) => (a.date < b.date ? -1 : 1));
+    const series = [];
+    asc.forEach((w) => {
+      let km = 0, min = 0;
+      (w.entries || []).forEach((en) => {
+        if (en.exerciseId !== exerciseId) return;
+        en.sets.forEach((s) => { km += Number(s.km) || 0; min += Number(s.min) || 0; });
+      });
+      if (km > 0 && min > 0) series.push({ label: dateShort(w.date), value: Math.round((min / km) * 100) / 100 });
+    });
+    return series.slice(-14);
+  }
+
+  function computeWeeklyCardio(asc) {
+    const weeks = {};
+    asc.forEach((w) => { weeks[weekKey(w.date)] = (weeks[weekKey(w.date)] || 0) + workoutCardio(w).km; });
+    const buckets = [];
+    const now = new Date();
+    for (let i = 7; i >= 0; i--) {
+      const d = new Date(now); d.setDate(d.getDate() - i * 7);
+      const key = weekKey(isoOf(d));
+      const label = mondayOf(d).toLocaleDateString("es-ES", { day: "numeric", month: "numeric" });
+      buckets.push({ label, value: Math.round((weeks[key] || 0) * 10) / 10 });
+    }
+    return buckets;
+  }
+
+  function computeCardioRecords(asc) {
+    const map = {};
+    asc.forEach((w) => {
+      const per = {};
+      (w.entries || []).forEach((en) => {
+        const ex = DB.exerciseById(en.exerciseId);
+        if (!ex || ex.group !== "cardio") return;
+        if (!per[ex.id]) per[ex.id] = { km: 0, min: 0 };
+        en.sets.forEach((s) => { per[ex.id].km += Number(s.km) || 0; per[ex.id].min += Number(s.min) || 0; });
+      });
+      Object.entries(per).forEach(([id, t]) => {
+        const ex = DB.exerciseById(id);
+        if (!map[id]) map[id] = { id, name: ex.name, maxKm: 0, maxMin: 0, bestPace: Infinity };
+        const r = map[id];
+        if (t.km > r.maxKm) r.maxKm = t.km;
+        if (t.min > r.maxMin) r.maxMin = t.min;
+        if (t.km > 0 && t.min > 0) { const p = t.min / t.km; if (p < r.bestPace) r.bestPace = p; }
+      });
+    });
+    return Object.values(map)
+      .map((r) => ({ ...r, bestPace: isFinite(r.bestPace) ? r.bestPace : 0 }))
+      .sort((a, b) => (b.maxKm - a.maxKm) || (b.maxMin - a.maxMin))
+      .slice(0, 8);
   }
 
   function computeWeeklyVolume(asc) {
