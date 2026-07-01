@@ -10,7 +10,7 @@
   const TOKEN_KEY = "gymandjam.token";
   let mode = "local";           // "local" | "backend"
   let token = null;
-  let email = null;
+  let username = null;
   let onReady = function () {};
   let syncTimer = null;
   let syncState = "idle";       // idle | saving | synced | offline
@@ -72,7 +72,7 @@
   const LOGOUT_SVG = '<svg viewBox="0 0 24 24"><path d="M15 12H3m0 0l4-4m-4 4l4 4M14 4h5a2 2 0 012 2v12a2 2 0 01-2 2h-5" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   function mountAccount() {
-    const initial = (email || "?").charAt(0).toUpperCase();
+    const initial = (username || "?").charAt(0).toUpperCase();
     const box = document.getElementById("accountBox");
     if (box) {
       box.innerHTML = `
@@ -80,7 +80,7 @@
           <div class="account-info">
             <span class="account-avatar">${initial}</span>
             <div class="account-meta">
-              <span class="account-email" title="${email || ""}">${email || ""}</span>
+              <span class="account-email" title="${username || ""}">${username || ""}</span>
               <span class="sync-status js-sync"><span class="sync-dot"></span>Sincronizado</span>
             </div>
           </div>
@@ -106,7 +106,7 @@
       <div class="am-head">
         <span class="account-avatar">${initial}</span>
         <div style="min-width:0">
-          <div class="am-email">${email || ""}</div>
+          <div class="am-email">${username || ""}</div>
           <div class="am-sync sync-status js-sync"><span class="sync-dot"></span>Sincronizado</div>
         </div>
       </div>
@@ -147,8 +147,8 @@
         </div>
         <form class="auth-form" id="authForm" autocomplete="on">
           <div class="modal-field">
-            <label>Email</label>
-            <input class="input" type="email" id="authEmail" placeholder="tu@email.com" required autocomplete="email">
+            <label>Nombre de usuario</label>
+            <input class="input" type="text" id="authUser" placeholder="p. ej. juanlifter" required minlength="3" maxlength="20" autocomplete="username" autocapitalize="none" spellcheck="false">
           </div>
           <div class="modal-field">
             <label>Contraseña</label>
@@ -167,7 +167,7 @@
 
     let tab = "login";
     const form = el.querySelector("#authForm");
-    const emailInput = el.querySelector("#authEmail");
+    const userInput = el.querySelector("#authUser");
     const passInput = el.querySelector("#authPassword");
     const confirmField = el.querySelector("#confirmField");
     const confirmInput = el.querySelector("#authConfirm");
@@ -182,24 +182,25 @@
       confirmField.hidden = t !== "register";
       confirmInput.value = "";
       errorBox.hidden = true;
-      emailInput.focus();
+      userInput.focus();
     }
     el.querySelectorAll(".auth-tab").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       errorBox.hidden = true;
-      const mail = emailInput.value.trim();
+      const uname = userInput.value.trim().toLowerCase();
       const pw = passInput.value;
-      if (!mail || pw.length < 6) { showError("Revisa el email y una contraseña de 6+ caracteres."); return; }
+      if (tab === "register" && !/^[a-z0-9._-]{3,20}$/.test(uname)) { showError("Usuario: 3-20 caracteres (letras, números, . _ -)."); return; }
+      if (!uname || pw.length < 6) { showError("Revisa el usuario y una contraseña de 6+ caracteres."); return; }
       if (tab === "register" && pw !== confirmInput.value) { showError("Las contraseñas no coinciden."); confirmInput.focus(); return; }
       submit.disabled = true;
       submit.textContent = tab === "login" ? "Entrando…" : "Creando…";
       try {
         const path = tab === "login" ? "/api/login" : "/api/register";
-        const data = await api(path, { method: "POST", body: { email: mail, password: pw } });
+        const data = await api(path, { method: "POST", body: { username: uname, password: pw } });
         token = data.token;
-        email = data.email;
+        username = data.username;
         localStorage.setItem(TOKEN_KEY, token);
         await enterApp(tab === "register");
         el.remove();
@@ -211,14 +212,14 @@
     });
 
     function showError(msg) { errorBox.textContent = msg; errorBox.hidden = false; }
-    emailInput.focus();
+    userInput.focus();
   }
 
   /* ---------- pull server state and start ---------- */
   async function enterApp(isNew) {
     const payload = decodeToken(token) || {};
     if (payload.uid != null) DB.setCacheKey("gymandjam.v1.u" + payload.uid);
-    email = email || payload.email;
+    username = username || payload.username || payload.email;
 
     let serverState = {};
     try {

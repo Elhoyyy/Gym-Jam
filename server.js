@@ -34,7 +34,7 @@ const db = new DatabaseSync(DB_PATH);
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    email      TEXT UNIQUE NOT NULL,
+    username   TEXT UNIQUE NOT NULL,
     salt       TEXT NOT NULL,
     hash       TEXT NOT NULL,
     state      TEXT NOT NULL DEFAULT '{}',
@@ -49,10 +49,19 @@ db.exec(`
     uses       INTEGER NOT NULL DEFAULT 0
   );
 `);
+
+// Migrate older databases that used an "email" column.
+{
+  const cols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  if (cols.includes("email") && !cols.includes("username")) {
+    db.exec("ALTER TABLE users RENAME COLUMN email TO username");
+  }
+}
+
 const q = {
-  byEmail: db.prepare("SELECT * FROM users WHERE email = ?"),
+  byUsername: db.prepare("SELECT * FROM users WHERE username = ?"),
   byId:    db.prepare("SELECT * FROM users WHERE id = ?"),
-  insert:  db.prepare("INSERT INTO users (email, salt, hash, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"),
+  insert:  db.prepare("INSERT INTO users (username, salt, hash, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"),
   saveState: db.prepare("UPDATE users SET state = ?, updated_at = ? WHERE id = ?"),
   insertShare: db.prepare("INSERT INTO shares (code, template, owner, created_at) VALUES (?, ?, ?, ?)"),
   getShare:    db.prepare("SELECT * FROM shares WHERE code = ?"),
@@ -93,7 +102,7 @@ function verifyToken(token) {
 }
 function issueToken(user) {
   const now = Math.floor(Date.now() / 1000);
-  return sign({ uid: user.id, email: user.email, iat: now, exp: now + TOKEN_TTL });
+  return sign({ uid: user.id, username: user.username, iat: now, exp: now + TOKEN_TTL });
 }
 
 /* ---------- helpers ---------- */
@@ -126,7 +135,7 @@ function authUser(req) {
   if (!payload) return null;
   return q.byId.get(payload.uid) || null;
 }
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const USERNAME_RE = /^[a-z0-9._-]{3,20}$/;
 
 // Short, unguessable share code (no ambiguous chars).
 function shareCode() {
@@ -165,26 +174,26 @@ async function handleApi(req, res, url) {
   }
 
   if (path === "/api/register" && req.method === "POST") {
-    const { email, password } = await readJSON(req);
-    const mail = String(email || "").trim().toLowerCase();
-    if (!EMAIL_RE.test(mail)) return sendJSON(res, 400, { error: "Email no válido" });
+    const { username, password } = await readJSON(req);
+    const uname = String(username || "").trim().toLowerCase();
+    if (!USERNAME_RE.test(uname)) return sendJSON(res, 400, { error: "Usuario no válido (3-20 caracteres: letras, números, . _ -)" });
     if (String(password || "").length < 6) return sendJSON(res, 400, { error: "La contraseña debe tener al menos 6 caracteres" });
-    if (q.byEmail.get(mail)) return sendJSON(res, 409, { error: "Ese email ya está registrado" });
+    if (q.byUsername.get(uname)) return sendJSON(res, 409, { error: "Ese nombre de usuario ya está en uso" });
     const { salt, hash } = hashPassword(String(password));
     const now = Date.now();
-    const info = q.insert.run(mail, salt, hash, "{}", now, now);
+    const info = q.insert.run(uname, salt, hash, "{}", now, now);
     const user = q.byId.get(info.lastInsertRowid);
-    return sendJSON(res, 201, { token: issueToken(user), email: user.email });
+    return sendJSON(res, 201, { token: issueToken(user), username: user.username });
   }
 
   if (path === "/api/login" && req.method === "POST") {
-    const { email, password } = await readJSON(req);
-    const mail = String(email || "").trim().toLowerCase();
-    const user = q.byEmail.get(mail);
+    const { username, password } = await readJSON(req);
+    const uname = String(username || "").trim().toLowerCase();
+    const user = q.byUsername.get(uname);
     if (!user || !verifyPassword(String(password || ""), user.salt, user.hash)) {
-      return sendJSON(res, 401, { error: "Email o contraseña incorrectos" });
+      return sendJSON(res, 401, { error: "Usuario o contraseña incorrectos" });
     }
-    return sendJSON(res, 200, { token: issueToken(user), email: user.email });
+    return sendJSON(res, 200, { token: issueToken(user), username: user.username });
   }
 
   if (path === "/api/state") {
@@ -213,7 +222,7 @@ async function handleApi(req, res, url) {
     if (!clean) return sendJSON(res, 400, { error: "Rutina no válida" });
     let code = shareCode();
     for (let i = 0; i < 5 && q.getShare.get(code); i++) code = shareCode();
-    q.insertShare.run(code, JSON.stringify(clean), user.email, Date.now());
+    q.insertShare.run(code, JSON.stringify(clean), user.username, Date.now());
     return sendJSON(res, 201, { code });
   }
 
