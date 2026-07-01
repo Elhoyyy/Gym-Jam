@@ -19,8 +19,7 @@
   function toggle() { apply(current() === "dark" ? "light" : "dark"); }
 
   function init() {
-    const btn = document.getElementById("themeToggle");
-    if (btn) btn.addEventListener("click", toggle);
+    document.querySelectorAll(".js-theme-toggle").forEach((b) => b.addEventListener("click", toggle));
   }
   if (document.readyState !== "loading") init();
   else document.addEventListener("DOMContentLoaded", init);

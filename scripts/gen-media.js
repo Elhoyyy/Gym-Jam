@@ -134,6 +134,18 @@ mine.forEach((m) => {
   if (e) { out[m.name + "@@" + m.group] = e.images.slice(0, 2); if (via === "ov") ov++; else { autoN++; autos.push(m.name.padEnd(38) + " -> " + e.name); } }
 });
 
+// cardio: local SVG illustrations (dataset has no cardio)
+const CARDIO = {
+  "Cinta de correr": "treadmill", "Caminata inclinada": "treadmill",
+  "Bicicleta estática": "bike", "Bicicleta de spinning": "bike", "Assault bike": "bike",
+  "Elíptica": "elliptical", "Remo (máquina)": "rower", "Escaladora (stairmaster)": "stairs",
+  "Comba": "jumprope", "Sprints": "run", "Burpees": "run",
+};
+let cardioN = 0;
+mine.filter((m) => m.group === "cardio").forEach((m) => {
+  if (CARDIO[m.name]) { out[m.name + "@@cardio"] = ["/assets/cardio/" + CARDIO[m.name] + ".svg"]; cardioN++; }
+});
+
 const body = `/* Auto-generado por scripts/gen-media.js — NO editar a mano salvo correcciones puntuales.
    Imágenes: free-exercise-db (https://github.com/yuhonas/free-exercise-db, dominio público).
    Clave: "Nombre del ejercicio@@grupo". Valor: rutas relativas a EXERCISE_MEDIA_BASE. */
@@ -142,6 +154,6 @@ window.EXERCISE_MEDIA = ${JSON.stringify(out)};
 `;
 writeFileSync(join(ROOT, "js", "exercise-media.js"), body);
 
-console.log(`Cobertura: ${Object.keys(out).length}/${mine.length}  (overrides ${ov} + auto ${autoN})`);
+console.log(`Cobertura: ${Object.keys(out).length}/${mine.length}  (overrides ${ov} + auto ${autoN} + cardio ${cardioN})`);
 if (fell.length) console.log("\nOverrides que NO existen en el dataset (cayeron a auto):\n" + fell.join("\n"));
 console.log("\n--- AUTO (revisar) ---\n" + autos.join("\n"));

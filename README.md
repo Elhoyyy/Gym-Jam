@@ -100,6 +100,7 @@ Gym&Jam/
 ## 🙏 Créditos
 
 - Imágenes de ejercicios: [free-exercise-db](https://github.com/yuhonas/free-exercise-db) (dominio público, *The Unlicense*). El mapa nombre→imagen está en `js/exercise-media.js` y es editable.
+- Iconos de cardio: [Tabler Icons](https://tabler.io/icons) (MIT), compuestos en `assets/cardio/` con `scripts/gen-cardio.js`.
 
 ## 📄 Licencia
 

@@ -293,6 +293,8 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .tpl-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; }
 .tpl-meta { font-size: 12px; color: var(--text-faint); }
 .tpl-foot .btn svg { width: 15px; height: 15px; }
+.share-box { display: flex; gap: 8px; }
+.share-box .input { flex: 1; min-width: 0; font-size: 13px; }
 
 .sets-table { padding: 4px 12px 12px; }
 .set-row { display: grid; grid-template-columns: 30px 1fr 1fr auto auto; gap: 10px; align-items: center; padding: 6px 2px; }
@@ -434,7 +436,7 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .lib-name { font-weight: 600; font-size: 14px; color: var(--ink); }
 
 /* Exercise detail media (2-frame pseudo-animation from start/end photos) */
-.ex-media-frame { position: relative; width: 100%; aspect-ratio: 4 / 3; border-radius: var(--radius-sm); overflow: hidden; background: var(--surface-2); border: 1px solid var(--border); margin-bottom: 16px; }
+.ex-media-frame { position: relative; width: 100%; aspect-ratio: 3 / 2; border-radius: var(--radius-sm); overflow: hidden; background: #fff; border: 1px solid var(--border); margin-bottom: 16px; }
 .ex-media-frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; }
 .ex-media-frame .frame-b { opacity: 0; }
 .ex-media-frame.animate .frame-b { animation: exFrame 1.4s steps(1, end) infinite; }
@@ -515,10 +517,9 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 }
 .theme-toggle:hover { transform: translateY(-2px); border-color: var(--border-strong); }
 .theme-toggle svg { width: 20px; height: 20px; }
-@media (max-width: 780px) { .theme-toggle { bottom: 82px; right: 16px; width: 40px; height: 40px; } }
-.theme-toggle .icon-sun { display: none; }
-:root[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
-:root[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
+.js-theme-toggle .icon-sun { display: none; }
+:root[data-theme="dark"] .js-theme-toggle .icon-moon { display: none; }
+:root[data-theme="dark"] .js-theme-toggle .icon-sun { display: block; }
 .auth-card {
   width: min(400px, 100%);
   background: var(--surface); border: 1px solid var(--border);
@@ -571,8 +572,13 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
   opacity: 0; pointer-events: none; transition: opacity 0.18s ease, transform 0.18s ease;
 }
 .timer-panel.is-open { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
-.timer-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.timer-title { font-family: "Space Grotesk"; font-weight: 700; font-size: 15px; letter-spacing: -0.2px; }
+.timer-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.timer-modes { display: inline-flex; gap: 3px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px; }
+.tmode { padding: 6px 12px; border: none; background: transparent; color: var(--text-dim); font: inherit; font-size: 12.5px; font-weight: 600; border-radius: 6px; cursor: pointer; transition: all 0.14s; }
+.tmode:hover { color: var(--ink); }
+.tmode.is-active { background: var(--solid); color: var(--on-solid); }
+.timer-panel.mode-stopwatch .timer-presets { display: none; }
+.timer-panel.mode-stopwatch .ctl-rest { display: none; }
 
 .timer-dial { position: relative; width: 168px; height: 168px; margin: 4px auto 12px; }
 .timer-dial svg { width: 100%; height: 100%; }
@@ -607,6 +613,49 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .timer-play svg { width: 22px; height: 22px; }
 
 /* ============================================================
+   Install banner (discreet, top)
+   ============================================================ */
+.install-banner {
+  position: fixed; top: 12px; left: 50%; z-index: 240;
+  transform: translateX(-50%) translateY(-160%);
+  width: calc(100% - 24px); max-width: 440px;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
+  transition: transform 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+.install-banner.show { transform: translateX(-50%) translateY(0); }
+.install-icon { width: 38px; height: 38px; border-radius: 9px; flex-shrink: 0; }
+.install-text { flex: 1; min-width: 0; font-size: 13px; color: var(--text-dim); line-height: 1.35; }
+.install-text b { color: var(--ink); font-weight: 700; }
+.install-text .ios-share { width: 15px; height: 15px; vertical-align: -3px; color: var(--accent); }
+.install-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+/* ============================================================
+   Mobile top bar + account menu
+   ============================================================ */
+.topbar { display: none; }
+.topbar-brand { display: flex; align-items: center; gap: 9px; }
+.topbar-logo { width: 30px; height: 30px; border-radius: 8px; background: var(--solid); color: var(--accent); display: grid; place-items: center; }
+.topbar-logo svg { width: 18px; height: 18px; }
+.topbar-name { font-family: "Space Grotesk"; font-weight: 700; font-size: 16px; letter-spacing: -0.3px; color: var(--ink); }
+.topbar-actions { display: flex; align-items: center; gap: 6px; }
+.topbar-btn { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); cursor: pointer; padding: 0; }
+.topbar-btn:active { transform: scale(0.95); }
+.topbar-btn svg { width: 19px; height: 19px; }
+.account-avatar.sm { width: 30px; height: 30px; border-radius: 8px; font-size: 13px; }
+
+.account-menu {
+  position: fixed; z-index: 245; top: 60px; right: 12px; width: min(280px, calc(100% - 24px));
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 14px; opacity: 0; transform: translateY(-8px); pointer-events: none; transition: opacity 0.18s, transform 0.18s;
+}
+.account-menu.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.account-menu .am-head { display: flex; align-items: center; gap: 11px; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+.account-menu .am-email { font-size: 13.5px; font-weight: 600; color: var(--ink); word-break: break-all; }
+.account-menu .am-sync { font-size: 11.5px; margin-top: 2px; }
+
+/* ============================================================
    Mobile nav
    ============================================================ */
 .mobile-nav { display: none; }
@@ -635,7 +684,14 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 }
 @media (max-width: 780px) {
   .sidebar { display: none; }
-  .main { padding: 24px 18px 96px; }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 80;
+    padding: 10px 14px calc(10px); padding-top: calc(10px + env(safe-area-inset-top));
+    background: var(--surface); border-bottom: 1px solid var(--border);
+  }
+  .main { padding: 20px 18px 96px; }
+  .theme-toggle { display: none; }   /* moved into the top bar on mobile */
   .view-head h1 { font-size: 25px; }
   .history-metrics { width: 100%; justify-content: flex-start; margin-left: 0; margin-top: 12px; }
   .history-top { flex-wrap: wrap; }
@@ -659,9 +715,8 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
   .history-actions .btn { flex: 1 1 auto; justify-content: center; }
   .history-top { column-gap: 12px; }
   .history-metric { flex: 1; }
-  /* Show the rest-timer launcher (no sidebar on mobile) */
-  .timer-fab { display: grid; bottom: 82px; left: 16px; width: 40px; height: 40px; }
-  .timer-panel { bottom: 90px; }
+  .timer-panel { bottom: 24px; }
+  .account-menu { top: 56px; }
 }
 /* Global guard against horizontal overflow on small screens */
 @media (max-width: 780px) {

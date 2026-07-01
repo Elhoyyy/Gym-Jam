@@ -724,10 +724,16 @@
               <h1>Rutinas</h1>
               <p class="subtitle">${tpls.length ? tpls.length + " rutinas guardadas. Pulsa Empezar para cargar una en el entreno de hoy." : "Guarda tus rutinas habituales y reutilízalas en un toque."}</p>
             </div>
-            <button class="btn btn-primary" id="newTemplateBtn">
-              <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
-              Crear rutina
-            </button>
+            <div class="row wrap" style="gap:10px">
+              ${isBackend() ? `<button class="btn btn-ghost" id="importRoutineBtn">
+                <svg viewBox="0 0 24 24"><path d="M12 15V3M8 11l4 4 4-4M4 19h16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Importar rutina
+              </button>` : ""}
+              <button class="btn btn-primary" id="newTemplateBtn">
+                <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+                Crear rutina
+              </button>
+            </div>
           </div>
         </div>
         ${tpls.length ? `<div class="tpl-grid">${tpls.map(templateCard).join("")}</div>`
@@ -735,9 +741,154 @@
       </div>`;
 
     $("#newTemplateBtn").addEventListener("click", () => { draft = newDraft(); setView("today"); toast("Monta tu rutina y pulsa «Guardar como rutina»", "info"); });
+    const impBtn = $("#importRoutineBtn");
+    if (impBtn) impBtn.addEventListener("click", () => openImportRoutine(""));
     $$("[data-use-tpl]").forEach((b) => b.addEventListener("click", () => useTemplate(b.dataset.useTpl)));
+    $$("[data-share-tpl]").forEach((b) => b.addEventListener("click", () => shareTemplate(b.dataset.shareTpl)));
     $$("[data-rename-tpl]").forEach((b) => b.addEventListener("click", () => promptRenameTemplate(b.dataset.renameTpl)));
     $$("[data-del-tpl]").forEach((b) => b.addEventListener("click", () => confirmDeleteTemplate(b.dataset.delTpl)));
+  }
+
+  /* ---------- Sharing routines ---------------------------- */
+  function isBackend() { return !!(global.Auth && global.Auth.mode === "backend"); }
+
+  // Portable payload: exercises by name+group (ids are per-user).
+  function templateSharePayload(t) {
+    return {
+      name: t.name,
+      groups: [...(t.groups || [])],
+      entries: (t.entries || []).map((en) => {
+        const ex = DB.exerciseById(en.exerciseId);
+        return ex ? { name: ex.name, group: ex.group, sets: en.sets.map((s) => ({ ...s })) } : null;
+      }).filter(Boolean),
+    };
+  }
+
+  async function shareTemplate(id) {
+    const t = DB.templateById(id);
+    if (!t) return;
+    if (!isBackend()) { toast("Necesitas una cuenta para compartir", "info"); return; }
+    try {
+      const data = await global.Auth.api("/api/share", { method: "POST", body: { template: templateSharePayload(t) }, auth: true });
+      shareLinkModal(t.name, data.code);
+    } catch (err) {
+      toast(err.message || "No se pudo compartir", "error");
+    }
+  }
+
+  function shareLinkModal(name, code) {
+    const link = location.origin + "/?rutina=" + code;
+    openModal(`
+      <div class="modal-head">
+        <div><h2>Compartir rutina</h2><p>Cualquiera con este enlace podrá guardar «${escapeHtml(name)}» en su perfil.</p></div>
+        <button class="icon-btn" id="closeShare"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="share-box">
+        <input class="input" id="shareLink" readonly value="${escapeHtml(link)}">
+        <button class="btn btn-primary" id="copyShare">Copiar</button>
+      </div>
+      <p class="text-dim" style="font-size:12.5px;margin-top:10px">Código: <b style="color:var(--ink);font-family:'Space Grotesk'">${code}</b></p>
+    `);
+    $("#closeShare").addEventListener("click", closeModal);
+    const input = $("#shareLink");
+    $("#copyShare").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(link); }
+      catch (_) { input.select(); document.execCommand && document.execCommand("copy"); }
+      toast("Enlace copiado", "success");
+    });
+    input.addEventListener("focus", () => input.select());
+  }
+
+  function parseShareCode(text) {
+    text = (text || "").trim();
+    const m = text.match(/rutina=([a-z0-9]+)/i);
+    if (m) return m[1];
+    return text.replace(/[^a-z0-9]/gi, "");
+  }
+
+  function openImportRoutine(prefill) {
+    openModal(`
+      <div class="modal-head">
+        <div><h2>Importar rutina</h2><p>Pega el enlace o el código que te han compartido.</p></div>
+        <button class="icon-btn" id="closeImp"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="modal-field"><label>Enlace o código</label><input class="input" id="impCode" placeholder="gymjam.…/?rutina=abcd… o abcd…" value="${escapeHtml(prefill || "")}" autocomplete="off"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="cancelImp">Cancelar</button>
+        <button class="btn btn-primary" id="fetchImp">Buscar rutina</button>
+      </div>
+    `);
+    const input = $("#impCode"); input.focus();
+    $("#closeImp").addEventListener("click", closeModal);
+    $("#cancelImp").addEventListener("click", closeModal);
+    const go = () => {
+      const code = parseShareCode(input.value);
+      if (!code) { toast("Introduce un enlace o código", "error"); return; }
+      fetchShared(code);
+    };
+    $("#fetchImp").addEventListener("click", go);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+  }
+
+  async function fetchShared(code) {
+    try {
+      const data = await global.Auth.api("/api/share/" + encodeURIComponent(code));
+      confirmImportShared(data.template);
+    } catch (err) {
+      toast(err.message || "No se encontró la rutina", "error");
+    }
+  }
+
+  function confirmImportShared(share) {
+    if (!share || !Array.isArray(share.entries)) { toast("Rutina no válida", "error"); return; }
+    const tags = (share.groups || []).map((k) => {
+      const g = G[k]; return g ? `<span class="g-tag" style="background:${g.color}">${g.name}</span>` : "";
+    }).join("");
+    const list = share.entries.map((e) => `<li><span class="ex-dot" style="background:${(G[e.group] || {}).color || "#888"}"></span>${escapeHtml(e.name)} <em>${(e.sets || []).length}×</em></li>`).join("");
+    openModal(`
+      <div class="modal-head">
+        <div><h2>${escapeHtml(share.name || "Rutina compartida")}</h2><p>Se añadirá a tus rutinas.</p></div>
+        <button class="icon-btn" id="closeCImp"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="tpl-tags" style="margin-bottom:10px">${tags}</div>
+      <ul class="tpl-ex" style="border-top:none;padding-top:0">${list}</ul>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="cancelCImp">Cancelar</button>
+        <button class="btn btn-primary" id="doImport">Añadir a mis rutinas</button>
+      </div>
+    `);
+    $("#closeCImp").addEventListener("click", closeModal);
+    $("#cancelCImp").addEventListener("click", closeModal);
+    $("#doImport").addEventListener("click", () => {
+      const t = importSharedTemplate(share);
+      closeModal();
+      toast(`Rutina "${t.name}" añadida`, "success");
+      setView("templates");
+    });
+  }
+
+  function importSharedTemplate(share) {
+    const entries = (share.entries || []).map((e) => {
+      const group = G[e.group] ? e.group : "pecho";
+      let ex = DB.get().exercises.find((x) => x.name === e.name && x.group === group);
+      if (!ex) ex = DB.addExercise(e.name, group);
+      return ex ? { exerciseId: ex.id, sets: (e.sets || []).map((s) => ({ ...s })) } : null;
+    }).filter(Boolean);
+    return DB.saveTemplate({
+      name: (share.name || "Rutina compartida").slice(0, 80),
+      groups: (share.groups || []).filter((k) => G[k]),
+      entries,
+    });
+  }
+
+  // If the page was opened with ?rutina=CODE, offer to import it.
+  function maybeImportSharedRoutine() {
+    if (!isBackend()) return;
+    const params = new URLSearchParams(location.search);
+    const code = params.get("rutina");
+    if (!code) return;
+    history.replaceState(null, "", location.pathname);
+    fetchShared(parseShareCode(code));
   }
 
   function templateCard(t) {
@@ -756,6 +907,7 @@
       <div class="tpl-head">
         <h3 class="tpl-name">${escapeHtml(t.name)}</h3>
         <div class="row" style="gap:6px">
+          ${isBackend() ? `<button class="icon-btn" data-share-tpl="${t.id}" title="Compartir"><svg viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4M6 12v7a2 2 0 002 2h8a2 2 0 002-2v-7" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ""}
           <button class="icon-btn" data-rename-tpl="${t.id}" title="Renombrar"><svg viewBox="0 0 24 24"><path d="M4 20h4L18 10l-4-4L4 16v4z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/></svg></button>
           <button class="icon-btn danger" data-del-tpl="${t.id}" title="Eliminar"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v13a1 1 0 001 1h8a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg></button>
         </div>
@@ -1438,11 +1590,12 @@
 
   // Resolve media URLs for an exercise: explicit URL wins, else the bundled dataset map.
   function resolveMedia(ex) {
-    if (ex.media) return [ex.media];
+    // Only bundled, first-party images (no user-supplied URLs).
     const map = window.EXERCISE_MEDIA || {};
     const base = window.EXERCISE_MEDIA_BASE || "";
     const paths = map[ex.name + "@@" + ex.group] || map[ex.name];
-    return paths && paths.length ? paths.map((p) => base + p) : [];
+    if (!paths || !paths.length) return [];
+    return paths.map((p) => (p.indexOf("http") === 0 || p.charAt(0) === "/") ? p : base + p);
   }
 
   function exerciseDetailStats(id, group) {
@@ -1489,11 +1642,11 @@
     if (ex.group === "cardio") {
       statLine = st.count
         ? `${st.count} sesiones · ${st.maxKm ? "más lejos " + fmtNum(Math.round(st.maxKm * 10) / 10) + " km" : "máx " + fmtDuration(st.maxMin)}${st.bestPace ? " · mejor ritmo " + fmtPace(st.bestPace) + " /km" : ""}`
-        : "Aún no registrado";
+        : "Todavía no lo has registrado en ningún entreno";
     } else {
       statLine = st.count
         ? `${st.count} sesiones · PR ${fmtNum(st.bestW)} kg · 1RM est. ${fmtNum(Math.round(st.best1rm))} kg`
-        : "Aún no registrado";
+        : "Todavía no lo has registrado en ningún entreno";
     }
     const lastLine = st.last ? "Última vez: " + fmtDate(st.last, { day: "numeric", month: "long", year: "numeric" }) : "";
 
@@ -1510,16 +1663,13 @@
         <div class="eds-line">${statLine}</div>
         ${lastLine ? `<div class="eds-sub">${lastLine}</div>` : ""}
       </div>
-      ${ex.instructions ? `<div class="ex-instructions">${escapeHtml(ex.instructions)}</div>` : ""}
       <div class="modal-actions">
         ${ex.custom ? `<button class="btn btn-danger" id="delDetail">Eliminar</button>` : ""}
-        <button class="btn btn-ghost" id="editMedia">${imgs.length ? "Cambiar imagen" : "Añadir imagen"}</button>
         <button class="btn btn-primary" id="startFromDetail">Usar en el entreno</button>
       </div>
     `);
 
     $("#closeDetail").addEventListener("click", closeModal);
-    $("#editMedia").addEventListener("click", () => editExerciseMedia(id));
     $("#startFromDetail").addEventListener("click", () => {
       closeModal();
       if (!draft) draft = newDraft();
@@ -1531,31 +1681,6 @@
       closeModal();
       toast("Ejercicio eliminado", "info");
       renderExercises();
-    });
-  }
-
-  function editExerciseMedia(id) {
-    const ex = DB.exerciseById(id);
-    if (!ex) return;
-    openModal(`
-      <div class="modal-head">
-        <div><h2>Imagen e instrucciones</h2><p>Pega la URL de una imagen o GIF. Déjalo vacío para usar la de la biblioteca.</p></div>
-        <button class="icon-btn" id="closeEM"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
-      </div>
-      <div class="modal-field"><label>URL de imagen / GIF</label><input class="input" id="emMedia" placeholder="https://…/ejercicio.gif" value="${escapeHtml(ex.media || "")}" autocomplete="off"></div>
-      <div class="modal-field"><label>Instrucciones (opcional)</label><textarea class="input" id="emInstr" placeholder="Técnica, consejos, notas…">${escapeHtml(ex.instructions || "")}</textarea></div>
-      <div class="modal-actions">
-        <button class="btn btn-ghost" id="cancelEM">Cancelar</button>
-        <button class="btn btn-primary" id="saveEM">Guardar</button>
-      </div>
-    `);
-    $("#closeEM").addEventListener("click", closeModal);
-    $("#cancelEM").addEventListener("click", closeModal);
-    $("#saveEM").addEventListener("click", () => {
-      DB.setExerciseMedia(id, $("#emMedia").value, $("#emInstr").value);
-      closeModal();
-      toast("Guardado", "success");
-      openExerciseDetail(id);
     });
   }
 
@@ -1633,6 +1758,8 @@
     setView("today");
     // Re-render current view when the theme changes (recolors charts).
     global.__onThemeChange = function () { render(); };
+    // Offer to import a shared routine if opened via ?rutina=CODE
+    maybeImportSharedRoutine();
   }
 
   // Auth gate: in backend mode this shows login first and pulls the

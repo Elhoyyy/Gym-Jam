@@ -33,6 +33,26 @@
   </script>
 </head>
 <body>
+  <!-- Mobile top bar (hidden on desktop) -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      <span class="topbar-logo"><svg viewBox="0 0 24 24" fill="none"><path d="M6.5 8.5v7M3.5 10v4M17.5 8.5v7M20.5 10v4M6.5 12h11" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></span>
+      <span class="topbar-name">Gym&Jam</span>
+    </div>
+    <div class="topbar-actions">
+      <button class="topbar-btn js-timer-open" type="button" aria-label="Temporizador">
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="13" r="8" stroke="currentColor" stroke-width="2"/><path d="M12 9v4l2.5 2M9 2h6M12 5V2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="topbar-btn js-theme-toggle" type="button" aria-label="Cambiar tema">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="2"/><path d="M12 2v2.5M12 19.5V22M22 12h-2.5M4.5 12H2M19 5l-1.8 1.8M6.8 17.2 5 19M19 19l-1.8-1.8M6.8 6.8 5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <button class="topbar-btn account-btn" id="accountBtn" type="button" hidden aria-label="Cuenta">
+        <span class="account-avatar sm" id="accountBtnAvatar">?</span>
+      </button>
+    </div>
+  </header>
+
   <div class="app-shell">
     <!-- Sidebar / Nav -->
     <aside class="sidebar">
@@ -72,9 +92,9 @@
         </button>
 
         <div class="nav-label" style="margin-top:14px">Herramientas</div>
-        <button class="nav-item" id="restTimerBtn" type="button">
+        <button class="nav-item js-timer-open" id="restTimerBtn" type="button">
           <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="13" r="8" stroke="currentColor" stroke-width="2"/><path d="M12 9v4l2.5 2M9 2h6M12 5V2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span>Descanso</span>
+          <span>Descanso / cronómetro</span>
         </button>
       </nav>
 
@@ -110,8 +130,8 @@
     <button class="mnav-item" data-view="exercises"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Ejercicios</span></button>
   </nav>
 
-  <!-- Theme toggle (floating, works on every screen) -->
-  <button id="themeToggle" class="theme-toggle" type="button" title="Cambiar tema claro/oscuro" aria-label="Cambiar tema">
+  <!-- Theme toggle (floating, desktop) -->
+  <button id="themeToggle" class="theme-toggle js-theme-toggle" type="button" title="Cambiar tema claro/oscuro" aria-label="Cambiar tema">
     <svg class="icon-moon" viewBox="0 0 24 24" fill="none"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
     <svg class="icon-sun" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="2"/><path d="M12 2v2.5M12 19.5V22M22 12h-2.5M4.5 12H2M19 5l-1.8 1.8M6.8 17.2 5 19M19 19l-1.8-1.8M6.8 6.8 5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
   </button>
@@ -131,6 +151,7 @@
   <script src="js/charts.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/install.js"></script>
   <script>
     /* Register the service worker (only over http/https, not file://). */
     if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {

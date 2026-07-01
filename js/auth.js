@@ -56,8 +56,6 @@
   }
   function setSync(s) {
     syncState = s;
-    const el = document.getElementById("syncStatus");
-    if (!el) return;
     const map = {
       saving:  ["var(--amber, #c07a1e)", "Guardando…"],
       synced:  ["var(--pos)", "Sincronizado"],
@@ -65,28 +63,59 @@
       idle:    ["var(--text-faint)", "Local"],
     };
     const [color, label] = map[s] || map.idle;
-    el.innerHTML = `<span class="sync-dot" style="background:${color}"></span>${label}`;
+    document.querySelectorAll(".js-sync").forEach((el) => {
+      el.innerHTML = `<span class="sync-dot" style="background:${color}"></span>${label}`;
+    });
   }
 
   /* ---------- account box (sidebar) ---------- */
+  const LOGOUT_SVG = '<svg viewBox="0 0 24 24"><path d="M15 12H3m0 0l4-4m-4 4l4 4M14 4h5a2 2 0 012 2v12a2 2 0 01-2 2h-5" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
   function mountAccount() {
+    const initial = (email || "?").charAt(0).toUpperCase();
     const box = document.getElementById("accountBox");
-    if (!box) return;
-    box.innerHTML = `
-      <div class="account">
-        <div class="account-info">
-          <span class="account-avatar">${(email || "?").charAt(0).toUpperCase()}</span>
-          <div class="account-meta">
-            <span class="account-email" title="${email || ""}">${email || ""}</span>
-            <span class="sync-status" id="syncStatus"><span class="sync-dot"></span>Sincronizado</span>
+    if (box) {
+      box.innerHTML = `
+        <div class="account">
+          <div class="account-info">
+            <span class="account-avatar">${initial}</span>
+            <div class="account-meta">
+              <span class="account-email" title="${email || ""}">${email || ""}</span>
+              <span class="sync-status js-sync"><span class="sync-dot"></span>Sincronizado</span>
+            </div>
           </div>
-        </div>
-        <button class="icon-btn" id="logoutBtn" title="Cerrar sesión">
-          <svg viewBox="0 0 24 24"><path d="M15 12H3m0 0l4-4m-4 4l4 4M14 4h5a2 2 0 012 2v12a2 2 0 01-2 2h-5" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-      </div>`;
+          <button class="icon-btn" id="logoutBtn" title="Cerrar sesión">${LOGOUT_SVG}</button>
+        </div>`;
+      box.querySelector("#logoutBtn").addEventListener("click", logout);
+    }
+    mountMobileAccount(initial);
     setSync(syncState === "idle" ? "synced" : syncState);
-    document.getElementById("logoutBtn").addEventListener("click", logout);
+  }
+
+  // Mobile: reveal the top-bar account button and build its dropdown menu.
+  function mountMobileAccount(initial) {
+    const btn = document.getElementById("accountBtn");
+    if (!btn) return;
+    btn.hidden = false;
+    const av = document.getElementById("accountBtnAvatar");
+    if (av) av.textContent = initial;
+
+    let menu = document.getElementById("accountMenu");
+    if (!menu) { menu = document.createElement("div"); menu.className = "account-menu"; menu.id = "accountMenu"; document.body.appendChild(menu); }
+    menu.innerHTML = `
+      <div class="am-head">
+        <span class="account-avatar">${initial}</span>
+        <div style="min-width:0">
+          <div class="am-email">${email || ""}</div>
+          <div class="am-sync sync-status js-sync"><span class="sync-dot"></span>Sincronizado</div>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-block" id="logoutBtnM">${LOGOUT_SVG} Cerrar sesión</button>`;
+    btn.onclick = (e) => { e.stopPropagation(); menu.classList.toggle("show"); };
+    menu.querySelector("#logoutBtnM").addEventListener("click", logout);
+    document.addEventListener("click", (e) => {
+      if (menu.classList.contains("show") && !menu.contains(e.target) && !btn.contains(e.target)) menu.classList.remove("show");
+    });
   }
 
   function logout() {
@@ -237,5 +266,5 @@
     }
   }
 
-  global.Auth = { init, logout, get mode() { return mode; } };
+  global.Auth = { init, logout, api, get mode() { return mode; } };
 })(window);

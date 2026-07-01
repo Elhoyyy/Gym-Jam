@@ -41,12 +41,22 @@ db.exec(`
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS shares (
+    code       TEXT PRIMARY KEY,
+    template   TEXT NOT NULL,
+    owner      TEXT,
+    created_at INTEGER NOT NULL,
+    uses       INTEGER NOT NULL DEFAULT 0
+  );
 `);
 const q = {
   byEmail: db.prepare("SELECT * FROM users WHERE email = ?"),
   byId:    db.prepare("SELECT * FROM users WHERE id = ?"),
   insert:  db.prepare("INSERT INTO users (email, salt, hash, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"),
   saveState: db.prepare("UPDATE users SET state = ?, updated_at = ? WHERE id = ?"),
+  insertShare: db.prepare("INSERT INTO shares (code, template, owner, created_at) VALUES (?, ?, ?, ?)"),
+  getShare:    db.prepare("SELECT * FROM shares WHERE code = ?"),
+  bumpShare:   db.prepare("UPDATE shares SET uses = uses + 1 WHERE code = ?"),
 };
 
 /* ---------- password hashing (scrypt) ---------- */
@@ -118,6 +128,34 @@ function authUser(req) {
 }
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Short, unguessable share code (no ambiguous chars).
+function shareCode() {
+  const A = "abcdefghijkmnpqrstuvwxyz23456789";
+  const b = randomBytes(8);
+  let s = ""; for (let i = 0; i < 8; i++) s += A[b[i] % A.length];
+  return s;
+}
+// Validate + sanitize a routine so we only store clean, bounded data.
+function sanitizeTemplate(t) {
+  if (!t || typeof t !== "object") return null;
+  const name = String(t.name || "").slice(0, 80).trim();
+  if (!name) return null;
+  const groups = Array.isArray(t.groups) ? t.groups.filter((g) => typeof g === "string").slice(0, 12) : [];
+  const entries = (Array.isArray(t.entries) ? t.entries : []).slice(0, 40).map((en) => {
+    if (!en || typeof en.name !== "string" || typeof en.group !== "string") return null;
+    const sets = (Array.isArray(en.sets) ? en.sets : []).slice(0, 30).map((s) => {
+      const o = {};
+      ["weight", "reps", "min", "km"].forEach((k) => {
+        if (s && s[k] !== undefined && s[k] !== "" && isFinite(Number(s[k]))) o[k] = Number(s[k]);
+      });
+      return o;
+    });
+    return { name: en.name.slice(0, 80), group: en.group.slice(0, 20), sets };
+  }).filter(Boolean);
+  if (!entries.length) return null;
+  return { name, groups, entries };
+}
+
 /* ---------- API ---------- */
 async function handleApi(req, res, url) {
   const path = url.pathname;
@@ -164,6 +202,31 @@ async function handleApi(req, res, url) {
       q.saveState.run(JSON.stringify(state), Date.now(), user.id);
       return sendJSON(res, 200, { ok: true, updatedAt: Date.now() });
     }
+  }
+
+  // Create a share link for a routine (must be logged in)
+  if (path === "/api/share" && req.method === "POST") {
+    const user = authUser(req);
+    if (!user) return sendJSON(res, 401, { error: "No autorizado" });
+    const { template } = await readJSON(req);
+    const clean = sanitizeTemplate(template);
+    if (!clean) return sendJSON(res, 400, { error: "Rutina no válida" });
+    let code = shareCode();
+    for (let i = 0; i < 5 && q.getShare.get(code); i++) code = shareCode();
+    q.insertShare.run(code, JSON.stringify(clean), user.email, Date.now());
+    return sendJSON(res, 201, { code });
+  }
+
+  // Fetch a shared routine by code (public)
+  if (path.startsWith("/api/share/") && req.method === "GET") {
+    const code = path.slice("/api/share/".length);
+    const row = q.getShare.get(code);
+    if (!row) return sendJSON(res, 404, { error: "Esa rutina no existe o ha caducado" });
+    q.bumpShare.run(code);
+    let template = null;
+    try { template = JSON.parse(row.template); } catch { template = null; }
+    if (!template) return sendJSON(res, 404, { error: "Rutina no válida" });
+    return sendJSON(res, 200, { template, owner: row.owner || null });
   }
 
   return sendJSON(res, 404, { error: "No encontrado" });
