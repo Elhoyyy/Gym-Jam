@@ -88,13 +88,18 @@ Gym&Jam/
 - [x] Modo oscuro
 - [x] Registro específico de cardio (tiempo y distancia)
 - [x] Temporizador de descanso entre series
+- [x] Imágenes por ejercicio (biblioteca open source)
+- [x] PWA instalable + offline (service worker)
 - [ ] Objetivos y seguimiento de peso corporal
-- [ ] PWA instalable + offline real
 - [ ] Exportar informe en PDF
 
 ## 🤝 Contribuir
 
 ¡Las contribuciones son bienvenidas! Abre un issue o un pull request. Al ser código plano (HTML/CSS/JS vanilla) es muy fácil de leer y ampliar.
+
+## 🙏 Créditos
+
+- Imágenes de ejercicios: [free-exercise-db](https://github.com/yuhonas/free-exercise-db) (dominio público, *The Unlicense*). El mapa nombre→imagen está en `js/exercise-media.js` y es editable.
 
 ## 📄 Licencia
 

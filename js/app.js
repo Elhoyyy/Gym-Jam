@@ -1408,8 +1408,12 @@
         <div class="lib-grid">
           ${filtered.map((e) => {
             const g = G[e.group];
-            return `<div class="card lib-card">
-              <div class="lib-icon" style="background:${g.color}1a;color:${g.color}">${g.abbr}</div>
+            const imgs = resolveMedia(e);
+            const icon = imgs.length
+              ? `<img class="lib-thumb" src="${imgs[0]}" loading="lazy" alt="" onerror="this.remove()">`
+              : g.abbr;
+            return `<div class="card lib-card" data-open-ex="${e.id}">
+              <div class="lib-icon" style="background:${g.color}1a;color:${g.color}">${icon}</div>
               <div style="min-width:0">
                 <div class="lib-name">${escapeHtml(e.name)}</div>
                 <div class="lib-cat">${g.name}</div>
@@ -1423,11 +1427,136 @@
 
     $("#newExerciseBtn").addEventListener("click", () => openCreateExercise(libFilter !== "all" ? libFilter : "pecho", ""));
     $$("[data-filter]").forEach((b) => b.addEventListener("click", () => { libFilter = b.dataset.filter; renderExercises(); }));
-    $$("[data-del-ex]").forEach((b) => b.addEventListener("click", () => {
+    $$("[data-del-ex]").forEach((b) => b.addEventListener("click", (e) => {
+      e.stopPropagation();
       DB.deleteExercise(b.dataset.delEx);
       toast("Ejercicio eliminado", "info");
       renderExercises();
     }));
+    $$("[data-open-ex]").forEach((c) => c.addEventListener("click", () => openExerciseDetail(c.dataset.openEx)));
+  }
+
+  // Resolve media URLs for an exercise: explicit URL wins, else the bundled dataset map.
+  function resolveMedia(ex) {
+    if (ex.media) return [ex.media];
+    const map = window.EXERCISE_MEDIA || {};
+    const base = window.EXERCISE_MEDIA_BASE || "";
+    const paths = map[ex.name + "@@" + ex.group] || map[ex.name];
+    return paths && paths.length ? paths.map((p) => base + p) : [];
+  }
+
+  function exerciseDetailStats(id, group) {
+    let count = 0, last = null, bestW = 0, best1rm = 0, maxKm = 0, maxMin = 0, bestPace = Infinity;
+    DB.sortedWorkouts().forEach((w) => {
+      const en = (w.entries || []).find((e) => e.exerciseId === id);
+      if (!en) return;
+      count++;
+      if (!last) last = w.date;
+      if (group === "cardio") {
+        let km = 0, min = 0;
+        en.sets.forEach((s) => { km += Number(s.km) || 0; min += Number(s.min) || 0; });
+        if (km > maxKm) maxKm = km;
+        if (min > maxMin) maxMin = min;
+        if (km > 0 && min > 0) { const p = min / km; if (p < bestPace) bestPace = p; }
+      } else {
+        en.sets.forEach((s) => {
+          if ((Number(s.weight) || 0) > bestW) bestW = Number(s.weight);
+          const o = DB.estimate1RM(s.weight, s.reps);
+          if (o > best1rm) best1rm = o;
+        });
+      }
+    });
+    return { count, last, bestW, best1rm, maxKm, maxMin, bestPace: isFinite(bestPace) ? bestPace : 0 };
+  }
+
+  function openExerciseDetail(id) {
+    const ex = DB.exerciseById(id);
+    if (!ex) return;
+    const g = G[ex.group];
+    const imgs = resolveMedia(ex);
+    const st = exerciseDetailStats(id, ex.group);
+
+    const mediaInner = imgs.length
+      ? `<img class="frame-a" src="${imgs[0]}" alt="${escapeHtml(ex.name)}" loading="lazy" onerror="this.closest('.ex-media-frame').classList.add('img-error')">
+         ${imgs[1] ? `<img class="frame-b" src="${imgs[1]}" alt="" loading="lazy">` : ""}`
+      : "";
+    const mediaFrame = `<div class="ex-media-frame ${imgs.length > 1 ? "animate" : ""} ${imgs.length ? "" : "img-error"}" style="--c:${g.color}">
+        ${mediaInner}
+        <div class="ex-media-empty"><span class="ex-media-mark">${g.abbr}</span><span>Sin imagen</span></div>
+      </div>`;
+
+    let statLine;
+    if (ex.group === "cardio") {
+      statLine = st.count
+        ? `${st.count} sesiones · ${st.maxKm ? "más lejos " + fmtNum(Math.round(st.maxKm * 10) / 10) + " km" : "máx " + fmtDuration(st.maxMin)}${st.bestPace ? " · mejor ritmo " + fmtPace(st.bestPace) + " /km" : ""}`
+        : "Aún no registrado";
+    } else {
+      statLine = st.count
+        ? `${st.count} sesiones · PR ${fmtNum(st.bestW)} kg · 1RM est. ${fmtNum(Math.round(st.best1rm))} kg`
+        : "Aún no registrado";
+    }
+    const lastLine = st.last ? "Última vez: " + fmtDate(st.last, { day: "numeric", month: "long", year: "numeric" }) : "";
+
+    openModal(`
+      <div class="modal-head">
+        <div>
+          <h2>${escapeHtml(ex.name)}</h2>
+          <p><span class="g-tag" style="background:${g.color}">${g.name}</span>${ex.custom ? ' <span class="lib-badge">TUYO</span>' : ""}</p>
+        </div>
+        <button class="icon-btn" id="closeDetail"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      ${mediaFrame}
+      <div class="ex-detail-stats">
+        <div class="eds-line">${statLine}</div>
+        ${lastLine ? `<div class="eds-sub">${lastLine}</div>` : ""}
+      </div>
+      ${ex.instructions ? `<div class="ex-instructions">${escapeHtml(ex.instructions)}</div>` : ""}
+      <div class="modal-actions">
+        ${ex.custom ? `<button class="btn btn-danger" id="delDetail">Eliminar</button>` : ""}
+        <button class="btn btn-ghost" id="editMedia">${imgs.length ? "Cambiar imagen" : "Añadir imagen"}</button>
+        <button class="btn btn-primary" id="startFromDetail">Usar en el entreno</button>
+      </div>
+    `);
+
+    $("#closeDetail").addEventListener("click", closeModal);
+    $("#editMedia").addEventListener("click", () => editExerciseMedia(id));
+    $("#startFromDetail").addEventListener("click", () => {
+      closeModal();
+      if (!draft) draft = newDraft();
+      addEntry(id);
+    });
+    const delBtn = $("#delDetail");
+    if (delBtn) delBtn.addEventListener("click", () => {
+      DB.deleteExercise(id);
+      closeModal();
+      toast("Ejercicio eliminado", "info");
+      renderExercises();
+    });
+  }
+
+  function editExerciseMedia(id) {
+    const ex = DB.exerciseById(id);
+    if (!ex) return;
+    openModal(`
+      <div class="modal-head">
+        <div><h2>Imagen e instrucciones</h2><p>Pega la URL de una imagen o GIF. Déjalo vacío para usar la de la biblioteca.</p></div>
+        <button class="icon-btn" id="closeEM"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="modal-field"><label>URL de imagen / GIF</label><input class="input" id="emMedia" placeholder="https://…/ejercicio.gif" value="${escapeHtml(ex.media || "")}" autocomplete="off"></div>
+      <div class="modal-field"><label>Instrucciones (opcional)</label><textarea class="input" id="emInstr" placeholder="Técnica, consejos, notas…">${escapeHtml(ex.instructions || "")}</textarea></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="cancelEM">Cancelar</button>
+        <button class="btn btn-primary" id="saveEM">Guardar</button>
+      </div>
+    `);
+    $("#closeEM").addEventListener("click", closeModal);
+    $("#cancelEM").addEventListener("click", closeModal);
+    $("#saveEM").addEventListener("click", () => {
+      DB.setExerciseMedia(id, $("#emMedia").value, $("#emInstr").value);
+      closeModal();
+      toast("Guardado", "success");
+      openExerciseDetail(id);
+    });
   }
 
   function openCreateExercise(defaultGroup, defaultName) {

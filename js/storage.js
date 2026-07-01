@@ -223,6 +223,18 @@
     return state.exercises.find((e) => e.id === id) || null;
   }
 
+  // Set an optional media URL (image/gif) and/or instructions on an exercise.
+  function setExerciseMedia(id, media, instructions) {
+    const ex = exerciseById(id);
+    if (!ex) return null;
+    ex.media = (media || "").trim();
+    ex.instructions = (instructions || "").trim();
+    if (!ex.media) delete ex.media;
+    if (!ex.instructions) delete ex.instructions;
+    save();
+    return ex;
+  }
+
   /* --- Workouts --------------------------------------------- */
   function saveWorkout(workout) {
     // Strip empty sets / entries (cardio sets use min/km instead of weight/reps)
@@ -362,7 +374,7 @@
   global.DB = {
     GROUPS, STORAGE_KEY,
     load, save, get, uid,
-    addExercise, deleteExercise, exerciseById,
+    addExercise, deleteExercise, exerciseById, setExerciseMedia,
     saveWorkout, deleteWorkout, workoutById, sortedWorkouts,
     saveTemplate, deleteTemplate, templateById, renameTemplate, sortedTemplates,
     setVolume, workoutVolume, workoutSetCount, estimate1RM,

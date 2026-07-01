@@ -426,7 +426,29 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
 .lib-card { display: flex; align-items: center; gap: 12px; padding: 14px 15px; }
 .lib-icon { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; font-family: "Space Grotesk"; font-weight: 700; font-size: 13px; flex-shrink: 0; letter-spacing: 0.5px; }
+.lib-card { cursor: pointer; transition: border-color 0.14s, transform 0.1s; }
+.lib-card:hover { border-color: var(--border-strong); }
+.lib-card:active { transform: scale(0.99); }
+.lib-icon { overflow: hidden; }
+.lib-thumb { width: 100%; height: 100%; object-fit: cover; display: block; background: #fff; }
 .lib-name { font-weight: 600; font-size: 14px; color: var(--ink); }
+
+/* Exercise detail media (2-frame pseudo-animation from start/end photos) */
+.ex-media-frame { position: relative; width: 100%; aspect-ratio: 4 / 3; border-radius: var(--radius-sm); overflow: hidden; background: var(--surface-2); border: 1px solid var(--border); margin-bottom: 16px; }
+.ex-media-frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; }
+.ex-media-frame .frame-b { opacity: 0; }
+.ex-media-frame.animate .frame-b { animation: exFrame 1.4s steps(1, end) infinite; }
+@keyframes exFrame { 0%, 50% { opacity: 0; } 50.01%, 100% { opacity: 1; } }
+.ex-media-empty { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--text-faint); font-size: 13px; }
+.ex-media-frame.img-error img { display: none; }
+.ex-media-frame.img-error .ex-media-empty { display: flex; }
+.ex-media-mark { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; font-family: "Space Grotesk"; font-weight: 700; font-size: 15px; background: color-mix(in srgb, var(--c) 15%, var(--surface)); color: var(--c); }
+
+.ex-detail-stats { margin-bottom: 14px; }
+.eds-line { font-size: 14px; color: var(--ink); font-weight: 500; }
+.eds-sub { font-size: 12.5px; color: var(--text-faint); margin-top: 3px; }
+.ex-instructions { font-size: 13.5px; color: var(--text-dim); line-height: 1.55; white-space: pre-wrap; padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 4px; }
+.modal-head p .g-tag { vertical-align: middle; }
 .lib-cat { font-size: 12px; color: var(--text-faint); }
 .lib-badge { margin-left: auto; font-size: 9.5px; font-weight: 700; padding: 2px 7px; border-radius: 4px; background: var(--surface-3); color: var(--text-faint); letter-spacing: 0.6px; }
 
@@ -632,9 +654,19 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
   .set-row { grid-template-columns: 28px 1fr 1fr auto; }
   .set-vol { display: none; }
   .summary-cell { min-width: 33%; }
+  /* History action buttons wrap instead of overflowing to the right */
+  .history-actions { flex-wrap: wrap; }
+  .history-actions .btn { flex: 1 1 auto; justify-content: center; }
+  .history-top { column-gap: 12px; }
+  .history-metric { flex: 1; }
   /* Show the rest-timer launcher (no sidebar on mobile) */
   .timer-fab { display: grid; bottom: 82px; left: 16px; width: 40px; height: 40px; }
   .timer-panel { bottom: 90px; }
+}
+/* Global guard against horizontal overflow on small screens */
+@media (max-width: 780px) {
+  .card, .view, .chart-card { max-width: 100%; }
+  .chart-wrap { overflow: hidden; }
 }
 @media (max-width: 460px) {
   .view-head-row .btn { width: 100%; }
