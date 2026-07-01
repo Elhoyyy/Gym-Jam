@@ -122,12 +122,22 @@
     }));
   }
 
+  function defaultNutrition() {
+    return {
+      profile: { sex: "", age: "", height: "", weight: "", activity: "moderate", goal: "maintain" },
+      targets: { kcal: 0, protein: 0, carbs: 0, fat: 0, auto: true },
+      foods: [],   // custom saved foods: {id, name, brand, kcal, protein, carbs, fat}  (per 100 g)
+      log: {},     // "YYYY-MM-DD": { desayuno:[entry], comida:[], cena:[], snack:[] }
+    };            // entry: {id, name, grams, kcal, protein, carbs, fat}  (macros per 100 g)
+  }
+
   function defaultState() {
     return {
       version: 1,
       exercises: seedExercises(),
       workouts: [],    // {id, date, groups:[], notes, entries:[{exerciseId, sets:[{weight, reps}]}]}
       templates: [],   // {id, name, groups:[], entries:[{exerciseId, sets:[{weight, reps}]}]}
+      nutrition: defaultNutrition(),
       settings: { unit: "kg" },
     };
   }
@@ -164,6 +174,14 @@
     }
     if (!Array.isArray(state.workouts)) state.workouts = [];
     if (!Array.isArray(state.templates)) state.templates = [];
+    if (!state.nutrition || typeof state.nutrition !== "object") state.nutrition = defaultNutrition();
+    else {
+      const d = defaultNutrition();
+      if (!state.nutrition.profile) state.nutrition.profile = d.profile;
+      if (!state.nutrition.targets) state.nutrition.targets = d.targets;
+      if (!Array.isArray(state.nutrition.foods)) state.nutrition.foods = [];
+      if (!state.nutrition.log || typeof state.nutrition.log !== "object") state.nutrition.log = {};
+    }
     return mergeDefaults();
   }
 

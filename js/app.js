@@ -10,6 +10,9 @@
   /* --- Draft session (work in progress) --------------------- */
   let draft = null; // {id?, date, groups:[], notes, entries:[{exerciseId, sets:[]}]}
   let currentView = "today";
+  let workspace = "train";  // "train" | "food"
+  let foodDate = null;      // selected day in the food diary (YYYY-MM-DD)
+  let foodWeekStart = null; // Monday of the week shown in the weekly view
   let statsExercise = null; // selected exercise id for strength progression chart
   let statsTab = "fuerza";  // "fuerza" | "cardio"
   let cardioExercise = null; // selected exercise id for cardio pace chart
@@ -68,13 +71,20 @@
   /* --- Modal ------------------------------------------------ */
   const backdrop = document.getElementById("modalBackdrop");
   const modal = document.getElementById("modal");
+  let onModalClose = null;   // cleanup for the current modal (e.g. stop camera)
 
+  function runModalCleanup() {
+    if (typeof onModalClose === "function") { try { onModalClose(); } catch (_) {} }
+    onModalClose = null;
+  }
   function openModal(html) {
+    runModalCleanup();
     modal.innerHTML = html;
     backdrop.hidden = false;
     document.body.style.overflow = "hidden";
   }
   function closeModal() {
+    runModalCleanup();
     backdrop.hidden = true;
     modal.innerHTML = "";
     document.body.style.overflow = "";
@@ -99,16 +109,34 @@
     else if (currentView === "history") renderHistory();
     else if (currentView === "stats") renderStats();
     else if (currentView === "exercises") renderExercises();
+    else if (currentView === "food-diary") renderFoodDiary();
+    else if (currentView === "food-week") renderFoodWeek();
+    else if (currentView === "food-goals") renderFoodGoals();
+    else if (currentView === "food-foods") renderFoodFoods();
     updateStreak();
   }
 
-  document.getElementById("nav").addEventListener("click", (e) => {
-    const btn = e.target.closest(".nav-item");
-    if (btn && btn.dataset.view) setView(btn.dataset.view);
-  });
-  document.getElementById("mobileNav").addEventListener("click", (e) => {
-    const btn = e.target.closest(".mnav-item");
-    if (btn) setView(btn.dataset.view);
+  const TRAIN_VIEWS = ["today", "templates", "history", "stats", "exercises"];
+  function setWorkspace(ws) {
+    workspace = ws;
+    try { localStorage.setItem("gymandjam.workspace", ws); } catch (_) {}
+    document.getElementById("nav").hidden = ws !== "train";
+    document.getElementById("navFood").hidden = ws !== "food";
+    document.getElementById("mobileNav").hidden = ws !== "train";
+    document.getElementById("mobileNavFood").hidden = ws !== "food";
+    $$(".ws-btn").forEach((b) => b.classList.toggle("is-active", b.dataset.ws === ws));
+    // switch to that workspace's default view if the current one doesn't belong
+    const inTrain = TRAIN_VIEWS.includes(currentView);
+    if (ws === "train" && !inTrain) setView("today");
+    else if (ws === "food" && inTrain) setView("food-diary");
+  }
+
+  // One delegated handler for nav items and the workspace switch.
+  document.addEventListener("click", (e) => {
+    const ws = e.target.closest("[data-ws]");
+    if (ws) { setWorkspace(ws.dataset.ws); return; }
+    const nav = e.target.closest(".nav-item[data-view], .mnav-item[data-view]");
+    if (nav) setView(nav.dataset.view);
   });
 
   /* ============================================================
@@ -1718,36 +1746,561 @@
   /* ============================================================
      IMPORT / EXPORT
      ============================================================ */
-  document.getElementById("exportBtn").addEventListener("click", () => {
-    const blob = new Blob([DB.exportJSON()], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `gym&jam-${todayISO()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast("Datos exportados", "success");
-  });
+  /* ---------- kg ⇄ lb converter ---------- */
+  function openConverter() {
+    openModal(`
+      <div class="modal-head">
+        <button class="icon-btn" id="convBack" title="Herramientas"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <h2 style="flex:1;font-size:20px">Conversor kg ⇄ lb</h2>
+        <button class="icon-btn" id="closeConv"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="conv-row">
+        <div class="modal-field"><label>Kilogramos</label><input class="input" id="convKg" type="number" step="0.1" inputmode="decimal" placeholder="0"></div>
+        <span class="conv-eq">⇄</span>
+        <div class="modal-field"><label>Libras</label><input class="input" id="convLb" type="number" step="0.1" inputmode="decimal" placeholder="0"></div>
+      </div>
+    `);
+    const kg = $("#convKg"), lb = $("#convLb");
+    kg.addEventListener("input", () => { const v = numLoc(kg.value); lb.value = kg.value === "" ? "" : (v * 2.2046226).toFixed(2); });
+    lb.addEventListener("input", () => { const v = numLoc(lb.value); kg.value = lb.value === "" ? "" : (v / 2.2046226).toFixed(2); });
+    $("#closeConv").addEventListener("click", closeModal);
+    $("#convBack").addEventListener("click", openTools);
+    kg.focus();
+  }
+  (function () { const b = document.getElementById("convBtn"); if (b) b.addEventListener("click", openConverter); })();
 
-  const importFile = document.getElementById("importFile");
-  document.getElementById("importBtn").addEventListener("click", () => importFile.click());
-  importFile.addEventListener("change", (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        DB.importJSON(reader.result);
-        toast("Datos importados correctamente", "success");
-        draft = null;
-        render();
-      } catch (err) {
-        toast("Archivo no válido", "error");
-      }
+  /* ---------- Tools menu ---------- */
+  function openTools() {
+    openModal(`
+      <div class="modal-head">
+        <div><h2>Herramientas</h2></div>
+        <button class="icon-btn" id="closeTools"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="tools-list">
+        <button class="tool-item" id="toolTimer">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M7 3h10M7 21h10M8 3c0 4.5 4 5.5 4 9s-4 4.5-4 9M16 3c0 4.5-4 5.5-4 9s4 4.5 4 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Temporizador
+        </button>
+        <button class="tool-item" id="toolStopwatch">
+          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="13" r="8" stroke="currentColor" stroke-width="2"/><path d="M12 9v4l2.5 2M9 2h6M12 5V2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Cronómetro
+        </button>
+        <button class="tool-item" id="toolConv">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M7 4H3m0 0l3-3M3 4l3 3M17 20h4m0 0l-3 3m3-3l-3-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 4h9a4 4 0 013 7M17 20H8a4 4 0 01-3-7" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
+          Conversor kg ⇄ lb
+        </button>
+      </div>
+    `);
+    $("#closeTools").addEventListener("click", closeModal);
+    $("#toolTimer").addEventListener("click", () => { closeModal(); global.RestTimer.open("rest", openTools); });
+    $("#toolStopwatch").addEventListener("click", () => { closeModal(); global.RestTimer.open("stopwatch", openTools); });
+    $("#toolConv").addEventListener("click", openConverter);
+  }
+  global.__toolsBack = openTools;
+  (function () { const b = document.getElementById("toolsBtn"); if (b) b.addEventListener("click", openTools); })();
+
+  /* ============================================================
+     NUTRITION (Alimentación)
+     ============================================================ */
+  const MEALS = [["desayuno", "Desayuno"], ["comida", "Comida"], ["cena", "Cena"], ["snack", "Snacks"]];
+  let foodSearchTimer = null;
+
+  function N() { return DB.get().nutrition; }
+  function addDays(iso, n) { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return isoOf(d); }
+  function ensureDay(date) {
+    const log = N().log;
+    if (!log[date]) log[date] = { desayuno: [], comida: [], cena: [], snack: [] };
+    const d = log[date];
+    MEALS.forEach(([k]) => { if (!Array.isArray(d[k])) d[k] = []; });
+    return d;
+  }
+  function dayLog(date) {
+    const d = N().log[date] || {};
+    return { desayuno: d.desayuno || [], comida: d.comida || [], cena: d.cena || [], snack: d.snack || [] };
+  }
+  function dayTotals(date) {
+    const d = dayLog(date); let kcal = 0, p = 0, c = 0, f = 0;
+    MEALS.forEach(([k]) => d[k].forEach((e) => {
+      const g = (Number(e.grams) || 0) / 100;
+      kcal += (Number(e.kcal) || 0) * g; p += (Number(e.protein) || 0) * g;
+      c += (Number(e.carbs) || 0) * g; f += (Number(e.fat) || 0) * g;
+    }));
+    return { kcal, protein: p, carbs: c, fat: f };
+  }
+  function hasFoodData(date) { const d = dayLog(date); return MEALS.some(([k]) => d[k].length); }
+
+  // Parse a number tolerating comma decimals.
+  function numLoc(v) { const n = parseFloat(String(v == null ? "" : v).replace(",", ".")); return isFinite(n) ? n : 0; }
+  // Normalize height to cm (guard against meters like "1,61").
+  function heightCm(v) { let h = numLoc(v); if (h > 0 && h < 3) h = h * 100; return Math.round(h); }
+
+  // Mifflin-St Jeor BMR → TDEE → target by goal; macros from bodyweight.
+  function computeTargets(profile) {
+    const w = numLoc(profile.weight), h = heightCm(profile.height), a = numLoc(profile.age);
+    if (!w || !h || !a) return null;
+    const bmr = 10 * w + 6.25 * h - 5 * a + (profile.sex === "female" ? -161 : 5);
+    const AF = { sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, athlete: 1.9 };
+    const tdee = bmr * (AF[profile.activity] || 1.55);
+    const GF = { cut: -0.20, maintain: 0, bulk: 0.12 };
+    const kcal = Math.round(tdee * (1 + (GF[profile.goal] != null ? GF[profile.goal] : 0)));
+    const protein = Math.round(w * 2.0);
+    const fat = Math.round((kcal * 0.25) / 9);
+    const carbs = Math.max(0, Math.round((kcal - protein * 4 - fat * 9) / 4));
+    const bmi = w / Math.pow(h / 100, 2);
+    return { bmr: Math.round(bmr), tdee: Math.round(tdee), kcal, protein, carbs, fat, bmi };
+  }
+  function bmiCategory(bmi) {
+    if (bmi < 18.5) return "Bajo peso";
+    if (bmi < 25) return "Normal";
+    if (bmi < 30) return "Sobrepeso";
+    return "Obesidad";
+  }
+
+  function macroRing(consumed, target) {
+    const R = 52, C = 2 * Math.PI * R;
+    const frac = target > 0 ? Math.min(1, consumed / target) : 0;
+    const over = target > 0 && consumed > target * 1.02;
+    const col = over ? "var(--neg)" : "var(--accent)";
+    return `<svg viewBox="0 0 120 120" class="kcal-ring">
+      <circle cx="60" cy="60" r="${R}" fill="none" stroke="var(--surface-3)" stroke-width="11"/>
+      <circle cx="60" cy="60" r="${R}" fill="none" style="stroke:${col}" stroke-width="11" stroke-linecap="round" transform="rotate(-90 60 60)" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${(C * (1 - frac)).toFixed(1)}"/>
+    </svg>`;
+  }
+  function macroBar(label, consumed, target, color) {
+    const pct = target > 0 ? Math.min(100, (consumed / target) * 100) : 0;
+    return `<div class="macro-bar">
+      <div class="mb-top"><span>${label}</span><span><b>${Math.round(consumed)}</b> / ${Math.round(target)} g</span></div>
+      <div class="mb-track"><div class="mb-fill" style="width:${pct}%;background:${color}"></div></div>
+    </div>`;
+  }
+
+  /* ---------- Diary ---------- */
+  function renderFoodDiary() {
+    if (!foodDate) foodDate = todayISO();
+    const t = N().targets;
+    const tot = dayTotals(foodDate);
+    const isToday = foodDate === todayISO();
+    const heading = isToday ? "Hoy" : fmtDate(foodDate, { weekday: "long", day: "numeric", month: "long" });
+    const hasTargets = t && t.kcal > 0;
+    const remaining = hasTargets ? Math.round(t.kcal - tot.kcal) : 0;
+
+    const summary = hasTargets ? `
+      <div class="card diary-summary">
+        <div class="ds-ring">
+          ${macroRing(tot.kcal, t.kcal)}
+          <div class="ds-ring-label"><b>${Math.round(tot.kcal)}</b><span>de ${t.kcal} kcal</span></div>
+        </div>
+        <div class="ds-macros">
+          <div class="ds-remain ${remaining < 0 ? "over" : ""}">${remaining >= 0 ? remaining + " kcal restantes" : Math.abs(remaining) + " kcal de más"}</div>
+          ${macroBar("Proteína", tot.protein, t.protein, "#2f6690")}
+          ${macroBar("Carbohidratos", tot.carbs, t.carbs, "#c07a1e")}
+          ${macroBar("Grasas", tot.fat, t.fat, "#a5324a")}
+        </div>
+      </div>`
+      : `<div class="empty-hint">Aún no tienes objetivos. Ve a <b>Objetivos</b> para calcular tus calorías y macros.</div>`;
+
+    const meals = MEALS.map(([key, label]) => {
+      const entries = dayLog(foodDate)[key];
+      let mk = 0; entries.forEach((e) => (mk += (Number(e.kcal) || 0) * (Number(e.grams) || 0) / 100));
+      const rows = entries.map((e, i) => `
+        <div class="food-entry">
+          <div class="fe-info"><div class="fe-name">${escapeHtml(e.name)}</div><div class="fe-sub">${e.grams} g · ${Math.round((Number(e.kcal) || 0) * e.grams / 100)} kcal</div></div>
+          <button class="icon-btn danger" data-del-entry="${key}:${i}" title="Quitar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        </div>`).join("") || `<div class="fe-empty">Sin alimentos</div>`;
+      return `<div class="card meal-card">
+        <div class="meal-head"><h3>${label}</h3><span class="meal-kcal">${Math.round(mk)} kcal</span></div>
+        ${rows}
+        <button class="add-set-btn" data-add-food="${key}">+ Añadir alimento</button>
+      </div>`;
+    }).join("");
+
+    main.innerHTML = `
+      <div class="view">
+        <div class="view-head">
+          <span class="eyebrow">Alimentación</span>
+          <div class="view-head-row">
+            <h1>Diario</h1>
+            <div class="row wrap" style="gap:10px">
+              <button class="btn btn-ghost btn-sm" id="copyDayBtn"><svg viewBox="0 0 24 24"><path d="M9 9h10v10H9zM5 15V5h10" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Copiar de otro día</button>
+            </div>
+          </div>
+          <div class="date-nav">
+            <button class="icon-btn" id="prevDay"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <div class="date-nav-label">${heading}</div>
+            <button class="icon-btn" id="nextDay" ${isToday ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            ${isToday ? "" : `<button class="btn btn-ghost btn-sm" id="todayBtn">Hoy</button>`}
+          </div>
+        </div>
+        ${summary}
+        <div class="meals-grid mt-16">${meals}</div>
+      </div>`;
+
+    $("#prevDay").addEventListener("click", () => { foodDate = addDays(foodDate, -1); renderFoodDiary(); });
+    const nx = $("#nextDay"); if (nx && !isToday) nx.addEventListener("click", () => { foodDate = addDays(foodDate, 1); renderFoodDiary(); });
+    const tb = $("#todayBtn"); if (tb) tb.addEventListener("click", () => { foodDate = todayISO(); renderFoodDiary(); });
+    $("#copyDayBtn").addEventListener("click", openCopyDay);
+    $$("[data-add-food]").forEach((b) => b.addEventListener("click", () => openFoodPicker(b.dataset.addFood)));
+    $$("[data-del-entry]").forEach((b) => b.addEventListener("click", () => {
+      const [meal, idx] = b.dataset.delEntry.split(":");
+      ensureDay(foodDate)[meal].splice(+idx, 1);
+      DB.save();
+      renderFoodDiary();
+    }));
+  }
+
+  function openFoodPicker(meal) {
+    const backend = isBackend();
+    const customFoods = N().foods;
+    openModal(`
+      <div class="modal-head">
+        <div><h2>Añadir alimento</h2><p>${backend ? "Busca en Open Food Facts o en tus alimentos." : "Elige de tus alimentos o crea uno nuevo."}</p></div>
+        <button class="icon-btn" id="closeFp"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      ${backend ? `<div class="picker-search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><input class="input" id="fpSearch" placeholder="Buscar alimento (p. ej. avena, pollo…)" autocomplete="off"></div>` : ""}
+      <div class="picker-list" id="fpList">${foodResultList(customFoods, "Mis alimentos")}</div>
+      <div class="modal-actions">
+        ${backend ? `<button class="btn btn-ghost" id="fpBarcode"><svg viewBox="0 0 24 24"><path d="M4 6v12M8 6v12M12 6v12M16 6v12M20 6v12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Código de barras</button>` : ""}
+        <button class="btn btn-ghost grow" id="fpCreate"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>Crear manual</button>
+      </div>
+    `);
+    $("#closeFp").addEventListener("click", closeModal);
+    $("#fpCreate").addEventListener("click", () => openCreateFood(meal));
+    const bc = $("#fpBarcode"); if (bc) bc.addEventListener("click", () => openBarcode(meal));
+    bindFoodResults(meal);
+    const s = $("#fpSearch");
+    if (s) {
+      s.focus();
+      s.addEventListener("input", () => {
+        const q = s.value.trim();
+        clearTimeout(foodSearchTimer);
+        if (q.length < 2) { $("#fpList").innerHTML = foodResultList(customFoods, "Mis alimentos"); bindFoodResults(meal); return; }
+        $("#fpList").innerHTML = `<div class="fe-empty" style="padding:20px">Buscando…</div>`;
+        foodSearchTimer = setTimeout(async () => {
+          try {
+            const data = await global.Auth.api("/api/food/search?q=" + encodeURIComponent(q), { auth: true });
+            $("#fpList").innerHTML = foodResultList(data.items || [], "Resultados");
+            bindFoodResults(meal);
+          } catch (err) { $("#fpList").innerHTML = `<div class="fe-empty" style="padding:20px">${escapeHtml(err.message || "Error al buscar")}</div>`; }
+        }, 350);
+      });
+    }
+  }
+
+  function foodResultList(items, label) {
+    if (!items.length) return `<div class="fe-empty" style="padding:18px">Nada por aquí. Prueba a buscar o crea un alimento.</div>`;
+    const enc = (o) => encodeURIComponent(JSON.stringify(o));
+    return `<div class="picker-group-label">${label}</div>` + items.map((it) => `
+      <button class="picker-item food-item" data-food="${enc({ name: it.name, brand: it.brand || "", kcal: it.kcal, protein: it.protein, carbs: it.carbs, fat: it.fat })}">
+        <span class="pi-name">${escapeHtml(it.name)}${it.brand ? ` <small>· ${escapeHtml(it.brand)}</small>` : ""}</span>
+        <span class="pi-group">${it.kcal} kcal/100g</span>
+      </button>`).join("");
+  }
+  function bindFoodResults(meal) {
+    $$(".food-item").forEach((b) => b.addEventListener("click", () => {
+      const food = JSON.parse(decodeURIComponent(b.dataset.food));
+      openPortion(meal, food);
+    }));
+  }
+
+  function openPortion(meal, food) {
+    openModal(`
+      <div class="modal-head">
+        <div><h2>${escapeHtml(food.name)}</h2><p>${food.kcal} kcal · P ${food.protein} · C ${food.carbs} · G ${food.fat} (por 100 g)</p></div>
+        <button class="icon-btn" id="closePor"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="modal-field"><label>Cantidad (gramos)</label><input class="input" id="porGrams" type="number" inputmode="numeric" min="1" step="1" value="100"></div>
+      <div class="portion-preview" id="porPreview"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="cancelPor">Cancelar</button>
+        <button class="btn btn-primary" id="addPor">Añadir</button>
+      </div>
+    `);
+    const g = $("#porGrams");
+    const preview = () => {
+      const grams = Number(g.value) || 0; const f = grams / 100;
+      $("#porPreview").innerHTML = `<b>${Math.round(food.kcal * f)}</b> kcal · P ${Math.round(food.protein * f)} · C ${Math.round(food.carbs * f)} · G ${Math.round(food.fat * f)}`;
     };
-    reader.readAsText(file);
-    importFile.value = "";
-  });
+    preview(); g.addEventListener("input", preview); g.focus(); g.select();
+    $("#closePor").addEventListener("click", closeModal);
+    $("#cancelPor").addEventListener("click", closeModal);
+    $("#addPor").addEventListener("click", () => {
+      const grams = Math.max(1, Math.round(Number(g.value) || 0));
+      ensureDay(foodDate)[meal].push({ id: DB.uid(), name: food.name, grams, kcal: food.kcal, protein: food.protein, carbs: food.carbs, fat: food.fat });
+      saveFoodToLibrary(food);
+      DB.save();
+      closeModal();
+      toast("Añadido al diario", "success");
+      renderFoodDiary();
+    });
+  }
+
+  function saveFoodToLibrary(food) {
+    const foods = N().foods;
+    const exists = foods.find((f) => f.name.toLowerCase() === food.name.toLowerCase() && (f.brand || "") === (food.brand || ""));
+    if (!exists) foods.unshift({ id: DB.uid(), name: food.name, brand: food.brand || "", kcal: food.kcal, protein: food.protein, carbs: food.carbs, fat: food.fat });
+    if (foods.length > 300) foods.length = 300;
+  }
+
+  function openCreateFood(meal) {
+    openModal(`
+      <div class="modal-head">
+        <div><h2>Nuevo alimento</h2><p>Valores por 100 g. Se guardará en tus alimentos.</p></div>
+        <button class="icon-btn" id="closeCf"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="modal-field"><label>Nombre</label><input class="input" id="cfName" placeholder="Ej: Arroz cocido" autocomplete="off"></div>
+      <div class="cf-macros">
+        <div class="modal-field"><label>Kcal /100g</label><input class="input" id="cfKcal" type="number" min="0" step="1" placeholder="0"></div>
+        <div class="modal-field"><label>Proteína</label><input class="input" id="cfP" type="number" min="0" step="0.1" placeholder="0"></div>
+        <div class="modal-field"><label>Carbos</label><input class="input" id="cfC" type="number" min="0" step="0.1" placeholder="0"></div>
+        <div class="modal-field"><label>Grasas</label><input class="input" id="cfF" type="number" min="0" step="0.1" placeholder="0"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="cancelCf">Cancelar</button>
+        <button class="btn btn-primary" id="saveCf">${meal ? "Añadir al diario" : "Guardar alimento"}</button>
+      </div>
+    `);
+    $("#cfName").focus();
+    $("#closeCf").addEventListener("click", closeModal);
+    $("#cancelCf").addEventListener("click", closeModal);
+    $("#saveCf").addEventListener("click", () => {
+      const name = $("#cfName").value.trim();
+      if (!name) { toast("Ponle un nombre", "error"); return; }
+      const food = { name, brand: "", kcal: Math.round(+$("#cfKcal").value || 0), protein: +$("#cfP").value || 0, carbs: +$("#cfC").value || 0, fat: +$("#cfF").value || 0 };
+      saveFoodToLibrary(food);
+      if (meal) { openPortion(meal, food); }
+      else { DB.save(); closeModal(); toast("Alimento guardado", "success"); if (currentView === "food-foods") renderFoodFoods(); }
+    });
+  }
+
+  function openBarcode(meal) {
+    const canScan = typeof window.BarcodeDetector !== "undefined" && navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
+    let stream = null, raf = null, detector = null;
+    const stopScan = () => {
+      if (raf) { cancelAnimationFrame(raf); raf = null; }
+      if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+    };
+
+    openModal(`
+      <div class="modal-head">
+        <div><h2>Código de barras</h2><p>${canScan ? "Escanéalo con la cámara o escríbelo." : "Escribe el código del producto."}</p></div>
+        <button class="icon-btn" id="closeBc"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      ${canScan ? `<div class="bc-scan" id="bcScan"><video id="bcVideo" playsinline muted></video><div class="bc-frame"></div></div>
+        <button class="btn btn-ghost btn-block" id="bcStart">Abrir cámara</button>` : ""}
+      <div class="modal-field" style="margin-top:14px"><label>Código (EAN / UPC)</label><input class="input" id="bcInput" type="text" inputmode="numeric" placeholder="p. ej. 3017620422003" autocomplete="off"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="cancelBc">Cancelar</button>
+        <button class="btn btn-primary" id="bcLookup">Buscar producto</button>
+      </div>
+    `);
+    onModalClose = stopScan;
+
+    const lookup = async (raw) => {
+      const code = String(raw || "").replace(/[^0-9]/g, "");
+      if (code.length < 6) { toast("Código no válido", "error"); return; }
+      try {
+        const data = await global.Auth.api("/api/food/barcode/" + code, { auth: true });
+        stopScan();
+        closeModal();
+        openPortion(meal, data.item);
+      } catch (err) { toast(err.message || "Producto no encontrado", "error"); }
+    };
+
+    $("#closeBc").addEventListener("click", closeModal);
+    $("#cancelBc").addEventListener("click", closeModal);
+    $("#bcLookup").addEventListener("click", () => lookup($("#bcInput").value));
+    $("#bcInput").addEventListener("keydown", (e) => { if (e.key === "Enter") lookup($("#bcInput").value); });
+
+    const startBtn = $("#bcStart");
+    if (startBtn) startBtn.addEventListener("click", async () => {
+      const video = $("#bcVideo");
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
+        video.srcObject = stream; await video.play();
+        $("#bcScan").classList.add("live");
+        startBtn.textContent = "Escaneando…"; startBtn.disabled = true;
+        detector = new window.BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a", "upc_e"] });
+        const tick = async () => {
+          if (!stream) return;
+          try {
+            const codes = await detector.detect(video);
+            if (codes && codes.length) { lookup(codes[0].rawValue); return; }
+          } catch (_) {}
+          raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+      } catch (e) {
+        toast("No se pudo abrir la cámara", "error");
+      }
+    });
+  }
+
+  function openCopyDay() {
+    const dates = Object.keys(N().log).filter((d) => d !== foodDate && hasFoodData(d)).sort().reverse().slice(0, 30);
+    if (!dates.length) { toast("No hay otros días con comidas", "info"); return; }
+    const rows = dates.map((d) => {
+      const tt = dayTotals(d);
+      return `<button class="reuse-item" data-copy="${d}">
+        <span class="reuse-info"><span class="reuse-name">${fmtDate(d, { weekday: "long", day: "numeric", month: "short" })}</span><span class="reuse-sub">${Math.round(tt.kcal)} kcal</span></span>
+        <svg viewBox="0 0 24 24" width="18" height="18"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>`;
+    }).join("");
+    openModal(`
+      <div class="modal-head"><div><h2>Copiar comidas</h2><p>Copiará las comidas de ese día a <b>${foodDate === todayISO() ? "hoy" : fmtDate(foodDate, { day: "numeric", month: "long" })}</b>.</p></div>
+        <button class="icon-btn" id="closeCopy"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="picker-list">${rows}</div>
+    `);
+    $("#closeCopy").addEventListener("click", closeModal);
+    $$("[data-copy]").forEach((b) => b.addEventListener("click", () => {
+      const src = dayLog(b.dataset.copy);
+      const dst = ensureDay(foodDate);
+      MEALS.forEach(([k]) => { src[k].forEach((e) => dst[k].push({ ...e, id: DB.uid() })); });
+      DB.save();
+      closeModal();
+      toast("Comidas copiadas", "success");
+      renderFoodDiary();
+    }));
+  }
+
+  /* ---------- Week ---------- */
+  function renderFoodWeek() {
+    if (!foodWeekStart) foodWeekStart = isoOf(mondayOf(todayISO()));
+    const t = N().targets;
+    const days = [];
+    for (let i = 0; i < 7; i++) days.push(addDays(foodWeekStart, i));
+    let weekKcal = 0, activeDays = 0;
+    days.forEach((d) => { const k = dayTotals(d).kcal; if (k > 0) { weekKcal += k; activeDays++; } });
+    const avg = activeDays ? Math.round(weekKcal / activeDays) : 0;
+    const endLabel = fmtDate(addDays(foodWeekStart, 6), { day: "numeric", month: "short" });
+    const startLabel = fmtDate(foodWeekStart, { day: "numeric", month: "short" });
+
+    const rows = days.map((d) => {
+      const tt = dayTotals(d);
+      const pct = t && t.kcal > 0 ? Math.min(100, (tt.kcal / t.kcal) * 100) : 0;
+      const over = t && t.kcal > 0 && tt.kcal > t.kcal * 1.05;
+      const wd = new Date(d + "T00:00:00").toLocaleDateString("es-ES", { weekday: "short" });
+      const dn = new Date(d + "T00:00:00").getDate();
+      const isToday = d === todayISO();
+      return `<button class="week-day ${isToday ? "is-today" : ""}" data-day="${d}">
+        <div class="wd-date"><span class="wd-wd">${wd}</span><span class="wd-dn">${dn}</span></div>
+        <div class="wd-bar-wrap"><div class="wd-bar" style="width:${pct}%;${over ? "background:var(--neg)" : ""}"></div></div>
+        <div class="wd-kcal">${tt.kcal ? Math.round(tt.kcal) + " kcal" : "—"}</div>
+      </button>`;
+    }).join("");
+
+    main.innerHTML = `
+      <div class="view">
+        <div class="view-head">
+          <span class="eyebrow">Alimentación</span>
+          <h1>Semana</h1>
+          <div class="date-nav">
+            <button class="icon-btn" id="prevWeek"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <div class="date-nav-label">${startLabel} – ${endLabel}</div>
+            <button class="icon-btn" id="nextWeek"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          </div>
+        </div>
+        <div class="card"><div class="row-between"><div><div class="s-label">Media diaria</div><div class="s-value" style="font-family:'Space Grotesk';font-size:24px;font-weight:700">${avg} <small style="font-size:13px;color:var(--text-dim)">kcal</small></div></div>${t && t.kcal ? `<div style="text-align:right"><div class="s-label">Objetivo</div><div class="s-value" style="font-family:'Space Grotesk';font-size:24px;font-weight:700">${t.kcal} <small style="font-size:13px;color:var(--text-dim)">kcal</small></div></div>` : ""}</div></div>
+        <div class="week-list mt-16">${rows}</div>
+      </div>`;
+
+    $("#prevWeek").addEventListener("click", () => { foodWeekStart = addDays(foodWeekStart, -7); renderFoodWeek(); });
+    $("#nextWeek").addEventListener("click", () => { foodWeekStart = addDays(foodWeekStart, 7); renderFoodWeek(); });
+    $$("[data-day]").forEach((b) => b.addEventListener("click", () => { foodDate = b.dataset.day; setView("food-diary"); }));
+  }
+
+  /* ---------- Goals / profile ---------- */
+  function renderFoodGoals() {
+    const p = N().profile;
+    const t = N().targets;
+    const sexOpt = (v, l) => `<option value="${v}" ${p.sex === v ? "selected" : ""}>${l}</option>`;
+    const actOpt = (v, l) => `<option value="${v}" ${p.activity === v ? "selected" : ""}>${l}</option>`;
+    const goalOpt = (v, l) => `<option value="${v}" ${p.goal === v ? "selected" : ""}>${l}</option>`;
+
+    main.innerHTML = `
+      <div class="view">
+        <div class="view-head"><span class="eyebrow">Alimentación</span><h1>Objetivos</h1><p class="subtitle">Tus datos calculan tus calorías y macros según tu meta.</p></div>
+        <div class="goals-grid">
+          <div class="card">
+            <div class="section-title mb-16">Tus datos</div>
+            <div class="goals-form">
+              <div class="modal-field"><label>Sexo</label><select class="select" id="gSex">${sexOpt("male", "Hombre")}${sexOpt("female", "Mujer")}</select></div>
+              <div class="modal-field"><label>Edad</label><input class="input" id="gAge" type="number" min="10" max="100" value="${p.age || ""}" placeholder="años"></div>
+              <div class="modal-field"><label>Altura (cm)</label><input class="input" id="gHeight" type="number" min="120" max="230" value="${p.height || ""}" placeholder="cm"></div>
+              <div class="modal-field"><label>Peso (kg)</label><input class="input" id="gWeight" type="number" min="30" max="250" step="0.1" value="${p.weight || ""}" placeholder="kg"></div>
+              <div class="modal-field"><label>Actividad</label><select class="select" id="gActivity">${actOpt("sedentary", "Sedentario")}${actOpt("light", "Ligera (1-3 días)")}${actOpt("moderate", "Moderada (3-5 días)")}${actOpt("active", "Alta (6-7 días)")}${actOpt("athlete", "Atleta")}</select></div>
+              <div class="modal-field"><label>Objetivo</label><select class="select" id="gGoal">${goalOpt("cut", "Definir (perder grasa)")}${goalOpt("maintain", "Mantener")}${goalOpt("bulk", "Ganar masa")}</select></div>
+            </div>
+          </div>
+          <div class="card" id="goalsPreview"></div>
+        </div>
+      </div>`;
+
+    const readProfile = () => ({ sex: $("#gSex").value, age: $("#gAge").value, height: $("#gHeight").value, weight: $("#gWeight").value, activity: $("#gActivity").value, goal: $("#gGoal").value });
+    const renderPreview = () => {
+      const prof = readProfile();
+      const c = computeTargets(prof);
+      const box = $("#goalsPreview");
+      if (!c) { box.innerHTML = `<div class="empty-hint" style="border:none;padding:30px 10px">Rellena edad, altura y peso para calcular tus objetivos.</div>`; return; }
+      box.innerHTML = `
+        <div class="section-title mb-16">Recomendación</div>
+        <div class="goal-kcal"><b>${c.kcal}</b> kcal / día</div>
+        <div class="goal-macros">
+          <div class="gm"><span class="gm-dot" style="background:#2f6690"></span><b>${c.protein} g</b><span>proteína</span></div>
+          <div class="gm"><span class="gm-dot" style="background:#c07a1e"></span><b>${c.carbs} g</b><span>carbos</span></div>
+          <div class="gm"><span class="gm-dot" style="background:#a5324a"></span><b>${c.fat} g</b><span>grasas</span></div>
+        </div>
+        <div class="goal-extra">
+          <div><span>IMC</span><b>${c.bmi.toFixed(1)}</b><em>${bmiCategory(c.bmi)}</em></div>
+          <div><span>Metabolismo basal</span><b>${c.bmr}</b><em>kcal</em></div>
+          <div><span>Gasto diario</span><b>${c.tdee}</b><em>kcal</em></div>
+        </div>
+        <button class="btn btn-primary btn-block mt-16" id="saveGoals">Guardar y usar estos objetivos</button>
+        ${t && t.kcal ? `<div class="text-dim" style="font-size:12.5px;text-align:center;margin-top:10px">Objetivo actual: ${t.kcal} kcal · P${t.protein} C${t.carbs} G${t.fat}</div>` : ""}`;
+      $("#saveGoals").addEventListener("click", () => {
+        const prof2 = readProfile();
+        const cc = computeTargets(prof2);
+        if (!cc) { toast("Faltan datos", "error"); return; }
+        const n = N();
+        n.profile = { sex: prof2.sex, age: numLoc(prof2.age), height: heightCm(prof2.height), weight: numLoc(prof2.weight), activity: prof2.activity, goal: prof2.goal };
+        n.targets = { kcal: cc.kcal, protein: cc.protein, carbs: cc.carbs, fat: cc.fat, auto: true };
+        DB.save();
+        toast("Objetivos guardados", "success");
+        renderFoodGoals();
+      });
+    };
+    ["#gSex", "#gAge", "#gHeight", "#gWeight", "#gActivity", "#gGoal"].forEach((s) => {
+      const el = $(s); el.addEventListener(el.tagName === "SELECT" ? "change" : "input", renderPreview);
+    });
+    renderPreview();
+  }
+
+  /* ---------- Foods library ---------- */
+  function renderFoodFoods() {
+    const foods = N().foods;
+    main.innerHTML = `
+      <div class="view">
+        <div class="view-head"><div class="view-head-row">
+          <div><span class="eyebrow">Alimentación</span><h1>Alimentos</h1><p class="subtitle">${foods.length} alimentos guardados. Se añaden solos al usarlos en el diario.</p></div>
+          <button class="btn btn-primary" id="newFoodBtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>Nuevo alimento</button>
+        </div></div>
+        ${foods.length ? `<div class="lib-grid">${foods.map((f) => `
+          <div class="card lib-card food-lib">
+            <div style="min-width:0;flex:1">
+              <div class="lib-name">${escapeHtml(f.name)}${f.brand ? ` <small class="text-dim">· ${escapeHtml(f.brand)}</small>` : ""}</div>
+              <div class="lib-cat">${f.kcal} kcal · P${f.protein} C${f.carbs} G${f.fat} <span class="text-faint">/100g</span></div>
+            </div>
+            <button class="icon-btn danger" data-del-food="${f.id}" title="Eliminar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+          </div>`).join("")}</div>`
+          : `<div class="empty-hint">Aún no tienes alimentos. Créalos o búscalos al añadir comida en el <b>Diario</b>.</div>`}
+      </div>`;
+    $("#newFoodBtn").addEventListener("click", () => openCreateFood(null));
+    $$("[data-del-food]").forEach((b) => b.addEventListener("click", () => {
+      N().foods = N().foods.filter((f) => f.id !== b.dataset.delFood);
+      DB.save();
+      renderFoodFoods();
+    }));
+  }
 
   /* ============================================================
      BOOT
@@ -1755,9 +2308,19 @@
   function boot() {
     DB.load();
     draft = newDraft();
-    setView("today");
     // Re-render current view when the theme changes (recolors charts).
     global.__onThemeChange = function () { render(); };
+
+    let savedWs = "train";
+    try { if (localStorage.getItem("gymandjam.workspace") === "food") savedWs = "food"; } catch (_) {}
+    workspace = savedWs;
+    document.getElementById("nav").hidden = savedWs !== "train";
+    document.getElementById("navFood").hidden = savedWs !== "food";
+    document.getElementById("mobileNav").hidden = savedWs !== "train";
+    document.getElementById("mobileNavFood").hidden = savedWs !== "food";
+    $$(".ws-btn").forEach((b) => b.classList.toggle("is-active", b.dataset.ws === savedWs));
+    setView(savedWs === "food" ? "food-diary" : "today");
+
     // Offer to import a shared routine if opened via ?rutina=CODE
     maybeImportSharedRoutine();
   }

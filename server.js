@@ -137,6 +137,31 @@ function authUser(req) {
 }
 const USERNAME_RE = /^[a-z0-9._-]{3,20}$/;
 
+function round1(v) { v = Number(v); return isFinite(v) ? Math.round(v * 10) / 10 : 0; }
+
+const OFF_UA = "GymAndJam/1.0 (open source; self-hosted)";
+async function offFetchJson(url) {
+  const r = await fetch(url, { headers: { "User-Agent": OFF_UA }, signal: AbortSignal.timeout(8000) });
+  const ct = r.headers.get("content-type") || "";
+  if (!ct.includes("json")) throw new Error("OFF non-JSON (" + r.status + ")");
+  return r.json();
+}
+// Normalize a product from either OFF search API into our shape.
+function offItem(x) {
+  const n = x.nutriments || {};
+  const kcal = n["energy-kcal_100g"];
+  let name = x.product_name;
+  if (name && typeof name === "object") name = name.es || name.en || Object.values(name)[0] || "";
+  name = String(name || "").trim();
+  if (kcal == null || !name) return null;
+  let brand = Array.isArray(x.brands) ? (x.brands[0] || "") : (x.brands || "");
+  brand = String(brand).split(",")[0].trim();
+  return {
+    name: name.slice(0, 120), brand: brand.slice(0, 60), code: String(x.code || ""),
+    kcal: Math.round(Number(kcal)), protein: round1(n.proteins_100g), carbs: round1(n.carbohydrates_100g), fat: round1(n.fat_100g),
+  };
+}
+
 // Short, unguessable share code (no ambiguous chars).
 function shareCode() {
   const A = "abcdefghijkmnpqrstuvwxyz23456789";
@@ -236,6 +261,49 @@ async function handleApi(req, res, url) {
     try { template = JSON.parse(row.template); } catch { template = null; }
     if (!template) return sendJSON(res, 404, { error: "Rutina no válida" });
     return sendJSON(res, 200, { template, owner: row.owner || null });
+  }
+
+  // Food search proxy (Open Food Facts) — keeps it CORS-free and private.
+  if (path === "/api/food/search" && req.method === "GET") {
+    const user = authUser(req);
+    if (!user) return sendJSON(res, 401, { error: "No autorizado" });
+    const term = (url.searchParams.get("q") || "").trim();
+    if (term.length < 2) return sendJSON(res, 200, { items: [] });
+    const enc = encodeURIComponent(term);
+    const salicious = "https://search.openfoodfacts.org/search?q=" + enc + "&page_size=25&lang=es&fields=code,product_name,brands,nutriments";
+    const legacy = "https://world.openfoodfacts.org/cgi/search.pl?search_terms=" + enc +
+      "&search_simple=1&action=process&json=1&page_size=25&fields=product_name,brands,nutriments,code";
+    let raw = null;
+    try { raw = await offFetchJson(salicious); }
+    catch (_) { try { raw = await offFetchJson(legacy); } catch (e2) { return sendJSON(res, 502, { error: "No se pudo buscar (Open Food Facts no responde)" }); } }
+    const list = raw.hits || raw.products || [];
+    const items = list.map(offItem).filter(Boolean).slice(0, 25);
+    return sendJSON(res, 200, { items });
+  }
+
+  // Barcode lookup (Open Food Facts product)
+  if (path.startsWith("/api/food/barcode/") && req.method === "GET") {
+    const user = authUser(req);
+    if (!user) return sendJSON(res, 401, { error: "No autorizado" });
+    const code = path.slice("/api/food/barcode/".length).replace(/[^0-9]/g, "").slice(0, 20);
+    if (code.length < 6) return sendJSON(res, 400, { error: "Código no válido" });
+    const off = "https://world.openfoodfacts.org/api/v2/product/" + code + ".json?fields=product_name,brands,nutriments,code";
+    try {
+      const r = await fetch(off, { headers: { "User-Agent": "GymAndJam/1.0 (open source; self-hosted)" }, signal: AbortSignal.timeout(9000) });
+      const data = await r.json();
+      if (!data || data.status !== 1 || !data.product) return sendJSON(res, 404, { error: "Producto no encontrado" });
+      const p = data.product, n = p.nutriments || {};
+      const kcal = n["energy-kcal_100g"];
+      let name = p.product_name;
+      if (name && typeof name === "object") name = name.es || name.en || Object.values(name)[0] || "";
+      name = String(name || "").trim();
+      if (kcal == null || !name) return sendJSON(res, 404, { error: "Ese producto no tiene datos nutricionales" });
+      let brand = Array.isArray(p.brands) ? (p.brands[0] || "") : (p.brands || "");
+      brand = String(brand).split(",")[0].trim();
+      return sendJSON(res, 200, { item: { name: name.slice(0, 120), brand: brand.slice(0, 60), code, kcal: Math.round(Number(kcal)), protein: round1(n.proteins_100g), carbs: round1(n.carbohydrates_100g), fat: round1(n.fat_100g) } });
+    } catch (e) {
+      return sendJSON(res, 502, { error: "Open Food Facts no responde" });
+    }
   }
 
   return sendJSON(res, 404, { error: "No encontrado" });

@@ -37,11 +37,14 @@
   <header class="topbar">
     <div class="topbar-brand">
       <span class="topbar-logo"><svg viewBox="0 0 24 24" fill="none"><path d="M6.5 8.5v7M3.5 10v4M17.5 8.5v7M20.5 10v4M6.5 12h11" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></span>
-      <span class="topbar-name">Gym&Jam</span>
+    </div>
+    <div class="ws-switch" id="wsSwitchMobile">
+      <button class="ws-btn is-active" data-ws="train">Entreno</button>
+      <button class="ws-btn" data-ws="food">Comida</button>
     </div>
     <div class="topbar-actions">
-      <button class="topbar-btn js-timer-open" type="button" aria-label="Temporizador">
-        <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="13" r="8" stroke="currentColor" stroke-width="2"/><path d="M12 9v4l2.5 2M9 2h6M12 5V2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <button class="topbar-btn" id="toolsBtn" type="button" aria-label="Herramientas">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M14.7 6.3a4 4 0 00-5.2 5.1l-5.6 5.6a1.5 1.5 0 002.1 2.1l5.6-5.6a4 4 0 005.1-5.2l-2.4 2.4-2.1-.5-.5-2.1z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
       </button>
       <button class="topbar-btn js-theme-toggle" type="button" aria-label="Cambiar tema">
         <svg class="icon-moon" viewBox="0 0 24 24" fill="none"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
@@ -68,8 +71,13 @@
         </div>
       </div>
 
+      <div class="ws-switch" id="wsSwitchDesktop">
+        <button class="ws-btn is-active" data-ws="train">Entreno</button>
+        <button class="ws-btn" data-ws="food">Comida</button>
+      </div>
+
       <nav class="nav" id="nav">
-        <div class="nav-label">Menú</div>
+        <div class="nav-label">Entrenamiento</div>
         <button class="nav-item is-active" data-view="today">
           <svg viewBox="0 0 24 24"><path d="M12 4v16m8-8H4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           <span>Entreno de hoy</span>
@@ -90,11 +98,41 @@
           <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           <span>Ejercicios</span>
         </button>
+      </nav>
 
-        <div class="nav-label" style="margin-top:14px">Herramientas</div>
-        <button class="nav-item js-timer-open" id="restTimerBtn" type="button">
+      <nav class="nav" id="navFood" hidden>
+        <div class="nav-label">Alimentación</div>
+        <button class="nav-item" data-view="food-diary">
+          <svg viewBox="0 0 24 24"><path d="M5 4h13a1 1 0 011 1v15H6a1 1 0 01-1-1zM8 8h7M8 12h7M8 16h4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Diario</span>
+        </button>
+        <button class="nav-item" data-view="food-week">
+          <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M3 9h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <span>Semana</span>
+        </button>
+        <button class="nav-item" data-view="food-goals">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.8" fill="none"/><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8" fill="none"/></svg>
+          <span>Objetivos</span>
+        </button>
+        <button class="nav-item" data-view="food-foods">
+          <svg viewBox="0 0 24 24"><path d="M6 3v7a2 2 0 004 0V3M8 10v11M16 3c-1.6 1-2.5 3-2.5 6 0 2 1 3 2.5 3v9" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Alimentos</span>
+        </button>
+      </nav>
+
+      <nav class="nav sidebar-tools">
+        <div class="nav-label">Herramientas</div>
+        <button class="nav-item js-timer-open" data-timer-mode="rest" type="button">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M7 3h10M7 21h10M8 3c0 4.5 4 5.5 4 9s-4 4.5-4 9M16 3c0 4.5-4 5.5-4 9s4 4.5 4 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Temporizador</span>
+        </button>
+        <button class="nav-item js-timer-open" data-timer-mode="stopwatch" type="button">
           <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="13" r="8" stroke="currentColor" stroke-width="2"/><path d="M12 9v4l2.5 2M9 2h6M12 5V2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span>Descanso / cronómetro</span>
+          <span>Cronómetro</span>
+        </button>
+        <button class="nav-item" id="convBtn" type="button">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M7 4H3m0 0l3-3M3 4l3 3M17 20h4m0 0l-3 3m3-3l-3-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 4h9a4 4 0 013 7M17 20H8a4 4 0 01-3-7" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
+          <span>Conversor kg ⇄ lb</span>
         </button>
       </nav>
 
@@ -107,11 +145,6 @@
           </div>
           <span class="streak-label">Racha actual</span>
         </div>
-        <div class="sidebar-actions">
-          <button class="ghost-btn" id="exportBtn" title="Exportar datos">Exportar</button>
-          <button class="ghost-btn" id="importBtn" title="Importar datos">Importar</button>
-        </div>
-        <input type="file" id="importFile" accept="application/json" hidden />
       </div>
     </aside>
 
@@ -128,6 +161,12 @@
     <button class="mnav-item" data-view="history"><svg viewBox="0 0 24 24"><path d="M12 8v4l3 2M21 12a9 9 0 1 1-9-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><path d="M21 4v4h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Historial</span></button>
     <button class="mnav-item" data-view="stats"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-6M22 20H2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Stats</span></button>
     <button class="mnav-item" data-view="exercises"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Ejercicios</span></button>
+  </nav>
+  <nav class="mobile-nav" id="mobileNavFood" hidden>
+    <button class="mnav-item is-active" data-view="food-diary"><svg viewBox="0 0 24 24"><path d="M5 4h13a1 1 0 011 1v15H6a1 1 0 01-1-1zM8 8h7M8 12h7M8 16h4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg><span>Diario</span></button>
+    <button class="mnav-item" data-view="food-week"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M3 9h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>Semana</span></button>
+    <button class="mnav-item" data-view="food-goals"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.8" fill="none"/><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8" fill="none"/></svg><span>Objetivos</span></button>
+    <button class="mnav-item" data-view="food-foods"><svg viewBox="0 0 24 24"><path d="M6 3v7a2 2 0 004 0V3M8 10v11M16 3c-1.6 1-2.5 3-2.5 6 0 2 1 3 2.5 3v9" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg><span>Alimentos</span></button>
   </nav>
 
   <!-- Theme toggle (floating, desktop) -->

@@ -1,14 +1,14 @@
 /* ============================================================
-   Gym&Jam — Rest timer + stopwatch
-   Two modes chosen by the user: "Descanso" (countdown with
-   presets, beep on finish) and "Cronómetro" (count up).
-   Floating panel, opened from the top bar / sidebar.
+   Gym&Jam — Temporizador (cuenta atrás) y Cronómetro (adelante)
+   Floating panel. Opened in a given mode; each tool has a
+   "back" button to return to the tools menu.
    ============================================================ */
 (function (global) {
   "use strict";
 
   const PRESETS = [60, 90, 120, 180];
-  let mode = "rest";           // "rest" | "stopwatch"
+  let mode = "rest";           // "rest" (countdown) | "stopwatch" (count up)
+  let backCb = null;
   let running = false;
   let tickId = null;
 
@@ -20,7 +20,6 @@
   let panel = null;
   const R = 52, C = 2 * Math.PI * R;
 
-  /* ---------- sound & haptics ---------- */
   function beep() {
     try {
       const AC = global.AudioContext || global.webkitAudioContext;
@@ -46,26 +45,19 @@
     s = Math.max(0, Math.floor(s));
     return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
   }
+  function elapsedSec() { return Math.floor((swElapsedMs + (running && mode === "stopwatch" ? Date.now() - swStartTs : 0)) / 1000); }
 
-  /* ---------- rendering ---------- */
   function render() {
     if (!panel) return;
     let secs, frac, done = false;
-    if (mode === "rest") {
-      secs = remaining;
-      frac = total > 0 ? remaining / total : 0;
-      done = total > 0 && remaining <= 0;
-    } else {
-      secs = elapsedSec();
-      frac = (secs % 60) / 60;
-    }
+    if (mode === "rest") { secs = remaining; frac = total > 0 ? remaining / total : 0; done = total > 0 && remaining <= 0; }
+    else { secs = elapsedSec(); frac = (secs % 60) / 60; }
+    panel.querySelector(".timer-title").textContent = mode === "stopwatch" ? "Cronómetro" : "Temporizador";
     panel.querySelector(".timer-time").textContent = mmss(secs);
     panel.querySelector(".timer-ring-fg").style.strokeDashoffset = (C * (1 - frac)).toFixed(1);
     panel.classList.toggle("is-done", done);
     panel.classList.toggle("mode-stopwatch", mode === "stopwatch");
     panel.classList.toggle("mode-rest", mode === "rest");
-    panel.querySelectorAll(".tmode").forEach((b) => b.classList.toggle("is-active", b.dataset.mode === mode));
-
     const play = panel.querySelector("#timerPlay");
     play.innerHTML = running
       ? '<svg viewBox="0 0 24 24"><path d="M8 5h3v14H8zM13 5h3v14h-3z" fill="currentColor"/></svg>'
@@ -73,11 +65,8 @@
     play.title = running ? "Pausar" : (mode === "stopwatch" ? "Iniciar" : "Reanudar");
   }
 
-  function elapsedSec() { return Math.floor((swElapsedMs + (running && mode === "stopwatch" ? Date.now() - swStartTs : 0)) / 1000); }
-
   function startTick() { clearInterval(tickId); tickId = setInterval(tick, 200); }
   function stopTick() { clearInterval(tickId); tickId = null; }
-
   function tick() {
     if (mode === "rest") {
       remaining = (endAt - Date.now()) / 1000;
@@ -86,9 +75,8 @@
     render();
   }
 
-  /* ---------- controls ---------- */
   function startWith(seconds) {
-    mode = "rest"; total = seconds; remaining = seconds; running = true;
+    total = seconds; remaining = seconds; running = true;
     endAt = Date.now() + seconds * 1000; startTick(); render();
   }
   function togglePlay() {
@@ -115,17 +103,16 @@
     else { swElapsedMs = 0; swStartTs = 0; }
     render();
   }
-  function setMode(m) {
-    if (m === mode) return;
-    running = false; stopTick();
-    mode = m;
+
+  function open(m, onBack) {
+    mode = m === "stopwatch" ? "stopwatch" : "rest";
+    backCb = typeof onBack === "function" ? onBack : null;
+    ensure();
+    panel.querySelector("#timerBack").style.display = backCb ? "" : "none";
+    panel.classList.add("is-open");
     render();
   }
-
-  /* ---------- open / close ---------- */
-  function open() { ensure(); panel.classList.add("is-open"); render(); }
   function close() { if (panel) panel.classList.remove("is-open"); }
-  function toggle() { if (panel && panel.classList.contains("is-open")) close(); else open(); }
 
   function ensure() {
     if (panel) return;
@@ -133,10 +120,8 @@
     panel.className = "timer-panel mode-rest";
     panel.innerHTML = `
       <div class="timer-head">
-        <div class="timer-modes">
-          <button class="tmode is-active" data-mode="rest">Descanso</button>
-          <button class="tmode" data-mode="stopwatch">Cronómetro</button>
-        </div>
+        <button class="icon-btn" id="timerBack" title="Herramientas"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="timer-title">Temporizador</span>
         <button class="icon-btn" id="timerClose" title="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       </div>
       <div class="timer-dial">
@@ -157,7 +142,7 @@
       </div>`;
     document.body.appendChild(panel);
     panel.querySelector("#timerClose").addEventListener("click", close);
-    panel.querySelectorAll(".tmode").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+    panel.querySelector("#timerBack").addEventListener("click", () => { close(); if (backCb) backCb(); });
     panel.querySelectorAll(".timer-preset").forEach((b) => b.addEventListener("click", () => startWith(+b.dataset.sec)));
     panel.querySelector("#timerPlay").addEventListener("click", togglePlay);
     panel.querySelector("#timerMinus").addEventListener("click", () => adjust(-15));
@@ -166,10 +151,11 @@
   }
 
   function init() {
-    document.querySelectorAll(".js-timer-open").forEach((b) => b.addEventListener("click", open));
+    document.querySelectorAll(".js-timer-open").forEach((b) =>
+      b.addEventListener("click", () => open(b.dataset.timerMode || "rest", global.__toolsBack)));
   }
   if (document.readyState !== "loading") init();
   else document.addEventListener("DOMContentLoaded", init);
 
-  global.RestTimer = { open, close, toggle, startWith };
+  global.RestTimer = { open, close, startWith };
 })(window);
