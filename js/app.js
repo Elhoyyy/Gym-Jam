@@ -1,7 +1,7 @@
 /* ============================================================
    Gym&Jam — App controller (views, logic, interactions)
    ============================================================ */
-(function () {
+(function (global) {
   "use strict";
 
   const G = DB.GROUPS;
@@ -93,6 +93,7 @@
 
   function render() {
     if (currentView === "today") renderToday();
+    else if (currentView === "templates") renderTemplates();
     else if (currentView === "history") renderHistory();
     else if (currentView === "stats") renderStats();
     else if (currentView === "exercises") renderExercises();
@@ -101,7 +102,7 @@
 
   document.getElementById("nav").addEventListener("click", (e) => {
     const btn = e.target.closest(".nav-item");
-    if (btn) setView(btn.dataset.view);
+    if (btn && btn.dataset.view) setView(btn.dataset.view);
   });
   document.getElementById("mobileNav").addEventListener("click", (e) => {
     const btn = e.target.closest(".mnav-item");
@@ -162,9 +163,13 @@
               <p class="subtitle">Selecciona los grupos musculares, añade ejercicios y registra tus series.</p>
             </div>
             <div class="row wrap" style="gap:10px">
+              ${DB.sortedTemplates().length ? `<button class="btn btn-ghost" id="useTemplateBtn">
+                <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                Usar rutina
+              </button>` : ""}
               ${DB.get().workouts.length ? `<button class="btn btn-ghost" id="reuseBtn">
                 <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 1 2.3 5.6M4 12V7m0 5h5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                Repetir anterior
+                Repetir
               </button>` : ""}
               <button class="btn btn-primary" id="saveSessionBtn">
                 <svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -198,7 +203,13 @@
           </div>
 
           <div class="card">
-            <div class="section-title mb-16"><span class="step">3</span> Notas y resumen</div>
+            <div class="row-between mb-16 wrap">
+              <div class="section-title"><span class="step">3</span> Notas y resumen</div>
+              <button class="btn btn-ghost btn-sm" id="saveTemplateBtn" title="Guardar la estructura de este entreno como rutina reutilizable">
+                <svg viewBox="0 0 24 24"><path d="M5 5h11l3 3v11H5V5z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/><path d="M9 5v5h5M8 19v-5h8v5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/></svg>
+                Guardar como rutina
+              </button>
+            </div>
             <textarea class="input" id="sessionNotes" placeholder="¿Cómo te has sentido? Sensaciones, energía, molestias...">${escapeHtml(draft.notes || "")}</textarea>
             <div class="summary-row">
               <div class="summary-cell accent"><div class="s-label">Volumen total</div><div class="s-value">${fmtNum(totalVol)} <small>kg</small></div></div>
@@ -216,6 +227,57 @@
     return DB.get().exercises.filter((e) => e.group === key).length;
   }
 
+  /* --- Cardio-aware set helpers ----------------------------- */
+  function isCardio(group) { return group === "cardio"; }
+  function newSetFor(group) { return isCardio(group) ? { min: "", km: "" } : { weight: "", reps: "" }; }
+
+  // Fields shown per exercise type: [{key, placeholder, step}]
+  function setFields(group) {
+    return isCardio(group)
+      ? [{ key: "min", ph: "min", step: "1" }, { key: "km", ph: "km", step: "0.1" }]
+      : [{ key: "weight", ph: "kg", step: "0.5" }, { key: "reps", ph: "reps", step: "1" }];
+  }
+  function setHeadLabels(group) {
+    return isCardio(group) ? ["Tiempo (min)", "Distancia (km)"] : ["Peso (kg)", "Reps"];
+  }
+  function setHasData(group, s) {
+    return isCardio(group)
+      ? (Number(s.min) > 0 || Number(s.km) > 0)
+      : Number(s.reps) > 0;
+  }
+  // Short, compact rendering of a set for "last time" / history.
+  function fmtSetShort(group, s) {
+    if (isCardio(group)) {
+      const a = [];
+      if (s.min) a.push(fmtNum(s.min) + " min");
+      if (s.km) a.push(fmtNum(s.km) + " km");
+      return a.join(" · ") || "—";
+    }
+    return fmtNum(s.weight) + "×" + s.reps;
+  }
+  // Per-set summary cell (right of the inputs).
+  function setSummary(group, s) {
+    if (isCardio(group)) {
+      const a = [];
+      if (s.km) a.push(fmtNum(s.km) + " km");
+      else if (s.min) a.push(fmtNum(s.min) + " min");
+      return a.join("");
+    }
+    return s.weight && s.reps ? fmtNum(DB.setVolume(s)) + " kg" : "";
+  }
+  // Exercise header total: volume for strength, time·distance for cardio.
+  function entryTotal(group, entry) {
+    if (isCardio(group)) {
+      let min = 0, km = 0;
+      entry.sets.forEach((s) => { min += Number(s.min) || 0; km += Number(s.km) || 0; });
+      const a = [];
+      if (min) a.push(fmtNum(min) + " min");
+      if (km) a.push(fmtNum(km) + " km");
+      return a.join(" · ") || "—";
+    }
+    return fmtNum(entry.sets.reduce((a, s) => a + DB.setVolume(s), 0)) + " kg";
+  }
+
   function renderEntries() {
     if (!draft.entries.length) {
       return `<div class="empty-hint">
@@ -227,20 +289,22 @@
       const ex = DB.exerciseById(en.exerciseId);
       if (!ex) return "";
       const g = G[ex.group];
-      const vol = en.sets.reduce((a, s) => a + DB.setVolume(s), 0);
+      const cardio = isCardio(ex.group);
+      const fields = setFields(ex.group);
+      const [labA, labB] = setHeadLabels(ex.group);
       const last = lastPerformance(en.exerciseId, draft.id);
       const lastHtml = last ? `<div class="last-time">
         <span>Última vez</span>
-        ${last.sets.map((s) => `${fmtNum(s.weight)}×${s.reps}`).join(" · ")}
+        ${last.sets.map((s) => fmtSetShort(ex.group, s)).join(" · ")}
         <em>${new Date(last.date + "T00:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" }).replace(".", "")}</em>
       </div>` : "";
       const setsHtml = en.sets.map((s, si) => {
-        const isPR = s.weight && s.reps && isPersonalRecord(en.exerciseId, s.weight, s.reps);
+        const isPR = !cardio && s.weight && s.reps && isPersonalRecord(en.exerciseId, s.weight, s.reps);
         return `<div class="set-row" data-ei="${ei}" data-si="${si}">
           <div class="set-idx">${si + 1}</div>
-          <input class="set-input" type="number" inputmode="decimal" min="0" step="0.5" placeholder="kg" value="${s.weight ?? ""}" data-field="weight">
-          <input class="set-input" type="number" inputmode="numeric" min="0" step="1" placeholder="reps" value="${s.reps ?? ""}" data-field="reps">
-          <div class="set-vol">${s.weight && s.reps ? fmtNum(DB.setVolume(s)) + " kg" : ""} ${isPR ? '<span class="pr-tag">PR</span>' : ""}</div>
+          <input class="set-input" type="number" inputmode="decimal" min="0" step="${fields[0].step}" placeholder="${fields[0].ph}" value="${s[fields[0].key] ?? ""}" data-field="${fields[0].key}">
+          <input class="set-input" type="number" inputmode="decimal" min="0" step="${fields[1].step}" placeholder="${fields[1].ph}" value="${s[fields[1].key] ?? ""}" data-field="${fields[1].key}">
+          <div class="set-vol">${setSummary(ex.group, s)} ${isPR ? '<span class="pr-tag">PR</span>' : ""}</div>
           <button class="icon-btn danger" data-action="del-set" title="Eliminar serie"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
         </div>`;
       }).join("");
@@ -252,12 +316,12 @@
             <div class="ex-name">${escapeHtml(ex.name)}</div>
             <div class="ex-group">${g.name}</div>
           </div>
-          <div class="ex-vol">Vol <b>${fmtNum(vol)} kg</b></div>
+          <div class="ex-vol">${cardio ? "Total" : "Vol"} <b>${entryTotal(ex.group, en)}</b></div>
           <button class="icon-btn danger" data-action="del-entry" title="Quitar ejercicio" style="margin-left:12px"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v13a1 1 0 001 1h8a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg></button>
         </div>
         ${lastHtml}
         <div class="sets-table">
-          <div class="set-row set-head"><span></span><span>Peso (kg)</span><span>Reps</span><span></span><span></span></div>
+          <div class="set-row set-head"><span></span><span>${labA}</span><span>${labB}</span><span></span><span></span></div>
           ${setsHtml}
           <button class="add-set-btn" data-action="add-set">+ Añadir serie</button>
         </div>
@@ -297,6 +361,9 @@
     $("#saveSessionBtn").addEventListener("click", saveSession);
     const reuseBtn = $("#reuseBtn");
     if (reuseBtn) reuseBtn.addEventListener("click", openReusePicker);
+    const useTplBtn = $("#useTemplateBtn");
+    if (useTplBtn) useTplBtn.addEventListener("click", openTemplatePicker);
+    $("#saveTemplateBtn").addEventListener("click", promptSaveTemplate);
 
     bindEntries();
   }
@@ -316,15 +383,16 @@
     const ei = +row.dataset.ei, si = +row.dataset.si;
     const field = input.dataset.field;
     draft.entries[ei].sets[si][field] = input.value === "" ? "" : Number(input.value);
-    // Update just the volume cell live
+    // Update just the summary cell live
+    const ex = DB.exerciseById(draft.entries[ei].exerciseId);
+    const group = ex ? ex.group : "";
     const s = draft.entries[ei].sets[si];
     const volCell = row.querySelector(".set-vol");
-    const pr = s.weight && s.reps && isPersonalRecord(draft.entries[ei].exerciseId, s.weight, s.reps);
-    volCell.innerHTML = (s.weight && s.reps ? fmtNum(DB.setVolume(s)) + " kg" : "") + (pr ? ' <span class="pr-tag">PR</span>' : "");
-    // Update exercise header volume
+    const pr = !isCardio(group) && s.weight && s.reps && isPersonalRecord(draft.entries[ei].exerciseId, s.weight, s.reps);
+    volCell.innerHTML = setSummary(group, s) + (pr ? ' <span class="pr-tag">PR</span>' : "");
+    // Update exercise header total
     const block = row.closest(".ex-block");
-    const vol = draft.entries[ei].sets.reduce((a, x) => a + DB.setVolume(x), 0);
-    block.querySelector(".ex-vol b").textContent = fmtNum(vol) + " kg";
+    block.querySelector(".ex-vol b").textContent = entryTotal(group, draft.entries[ei]);
   }
 
   function onEntryClick(e) {
@@ -334,15 +402,18 @@
 
     if (action === "add-set") {
       const ei = +btn.closest(".ex-block").dataset.ei;
+      const ex = DB.exerciseById(draft.entries[ei].exerciseId);
+      const group = ex ? ex.group : "";
       const sets = draft.entries[ei].sets;
       const last = sets[sets.length - 1];
-      sets.push({ weight: last ? last.weight : "", reps: last ? last.reps : "" });
+      sets.push(last ? { ...last } : newSetFor(group));
       refreshEntries();
     } else if (action === "del-set") {
       const row = btn.closest(".set-row");
       const ei = +row.dataset.ei, si = +row.dataset.si;
+      const ex = DB.exerciseById(draft.entries[ei].exerciseId);
       draft.entries[ei].sets.splice(si, 1);
-      if (!draft.entries[ei].sets.length) draft.entries[ei].sets.push({ weight: "", reps: "" });
+      if (!draft.entries[ei].sets.length) draft.entries[ei].sets.push(newSetFor(ex ? ex.group : ""));
       refreshEntries();
     } else if (action === "del-entry") {
       const ei = +btn.closest(".ex-block").dataset.ei;
@@ -421,15 +492,16 @@
 
   function addEntry(exerciseId) {
     // Avoid duplicate: if already present, just add a set focus
+    const ex = DB.exerciseById(exerciseId);
+    const group = ex ? ex.group : "";
     let entry = draft.entries.find((en) => en.exerciseId === exerciseId);
     if (!entry) {
-      entry = { exerciseId, sets: [{ weight: "", reps: "" }] };
+      entry = { exerciseId, sets: [newSetFor(group)] };
       draft.entries.push(entry);
       // auto-select its group
-      const ex = DB.exerciseById(exerciseId);
       if (ex && !draft.groups.includes(ex.group)) draft.groups.push(ex.group);
     } else {
-      entry.sets.push({ weight: "", reps: "" });
+      entry.sets.push(newSetFor(group));
     }
     closeModal();
     renderToday();
@@ -437,9 +509,12 @@
   }
 
   function saveSession() {
-    const hasData = draft.entries.some((en) => en.sets.some((s) => Number(s.reps) > 0));
+    const hasData = draft.entries.some((en) => {
+      const ex = DB.exerciseById(en.exerciseId);
+      return en.sets.some((s) => setHasData(ex ? ex.group : "", s));
+    });
     if (!draft.groups.length) { toast("Selecciona un tipo de entreno", "error"); return; }
-    if (!hasData) { toast("Añade al menos una serie con repeticiones", "error"); return; }
+    if (!hasData) { toast("Añade al menos una serie con datos", "error"); return; }
 
     DB.saveWorkout(draft);
     toast(draft.id ? "Entreno actualizado" : "¡Entreno guardado! 💪", "success");
@@ -493,7 +568,7 @@
       .filter((en) => DB.exerciseById(en.exerciseId))
       .map((en) => ({
         exerciseId: en.exerciseId,
-        sets: en.sets.map((s) => ({ weight: s.weight, reps: s.reps })),
+        sets: en.sets.map((s) => ({ ...s })),
       }));
     draft = { date: todayISO(), groups: [...(w.groups || [])], notes: "", entries };
     closeModal();
@@ -510,6 +585,216 @@
       if (en && en.sets.length) return { date: w.date, sets: en.sets };
     }
     return null;
+  }
+
+  /* ============================================================
+     TEMPLATES (routines)
+     ============================================================ */
+  function promptSaveTemplate() {
+    if (!draft.entries.length) { toast("Añade ejercicios antes de guardar la rutina", "error"); return; }
+    const suggested = draft.groups.map((k) => (G[k] || {}).name).filter(Boolean).join(" · ") || "Mi rutina";
+    openModal(`
+      <div class="modal-head">
+        <div><h2>Guardar como rutina</h2><p>Guarda estos ejercicios y series como plantilla reutilizable.</p></div>
+        <button class="icon-btn" id="closeTpl"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="modal-field"><label>Nombre de la rutina</label><input class="input" id="tplName" placeholder="Ej: Push A · Pecho, hombro y tríceps" value="${escapeHtml(suggested)}" autocomplete="off"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="cancelTpl">Cancelar</button>
+        <button class="btn btn-primary" id="saveTpl">Guardar rutina</button>
+      </div>
+    `);
+    const nameInput = $("#tplName");
+    nameInput.focus(); nameInput.select();
+    const submit = () => {
+      const name = nameInput.value.trim();
+      if (!name) { toast("Ponle un nombre a la rutina", "error"); return; }
+      DB.saveTemplate({
+        name,
+        groups: [...draft.groups],
+        entries: draft.entries.map((en) => ({
+          exerciseId: en.exerciseId,
+          sets: en.sets.map((s) => ({ ...s })),
+        })),
+      });
+      closeModal();
+      toast("Rutina guardada", "success");
+    };
+    $("#closeTpl").addEventListener("click", closeModal);
+    $("#cancelTpl").addEventListener("click", closeModal);
+    $("#saveTpl").addEventListener("click", submit);
+    nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+  }
+
+  function openTemplatePicker() {
+    const tpls = DB.sortedTemplates();
+    if (!tpls.length) { toast("Aún no tienes rutinas guardadas", "info"); return; }
+    const rows = tpls.map((t) => {
+      const tags = (t.groups || []).map((k) => {
+        const g = G[k]; return g ? `<span class="g-tag" style="background:${g.color}">${g.name}</span>` : "";
+      }).join("");
+      const sets = (t.entries || []).reduce((a, en) => a + en.sets.length, 0);
+      return `<button class="reuse-item" data-tpl="${t.id}">
+        <span class="reuse-info">
+          <span class="reuse-name">${escapeHtml(t.name)}</span>
+          <span class="reuse-tags">${tags}</span>
+          <span class="reuse-sub">${(t.entries || []).length} ejercicios · ${sets} series planificadas</span>
+        </span>
+        <svg viewBox="0 0 24 24" width="18" height="18"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>`;
+    }).join("");
+    const warn = draft.entries.length
+      ? `<p style="color:var(--neg)">Se reemplazará el entreno que tienes ahora sin guardar.</p>`
+      : `<p>Se cargará con sus pesos y reps de referencia para que solo ajustes los números.</p>`;
+    openModal(`
+      <div class="modal-head">
+        <div><h2>Usar una rutina</h2>${warn}</div>
+        <button class="icon-btn" id="closeUseTpl"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="picker-list">${rows}</div>
+    `);
+    $("#closeUseTpl").addEventListener("click", closeModal);
+    $$(".reuse-item").forEach((it) => it.addEventListener("click", () => useTemplate(it.dataset.tpl)));
+  }
+
+  function templateFromWorkout(id) {
+    const w = DB.workoutById(id);
+    if (!w) return;
+    const suggested = (w.groups || []).map((k) => (G[k] || {}).name).filter(Boolean).join(" · ") || "Mi rutina";
+    openModal(`
+      <div class="modal-head">
+        <div><h2>Guardar como rutina</h2><p>Crea una plantilla reutilizable a partir de este entreno.</p></div>
+        <button class="icon-btn" id="closeTplW"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="modal-field"><label>Nombre de la rutina</label><input class="input" id="tplNameW" value="${escapeHtml(suggested)}" autocomplete="off"></div>
+      <div class="modal-actions"><button class="btn btn-ghost" id="cancelTplW">Cancelar</button><button class="btn btn-primary" id="saveTplW">Guardar rutina</button></div>
+    `);
+    const input = $("#tplNameW"); input.focus(); input.select();
+    const submit = () => {
+      const name = input.value.trim();
+      if (!name) { toast("Ponle un nombre a la rutina", "error"); return; }
+      DB.saveTemplate({
+        name, groups: [...(w.groups || [])],
+        entries: (w.entries || []).map((en) => ({
+          exerciseId: en.exerciseId,
+          sets: en.sets.map((s) => ({ ...s })),
+        })),
+      });
+      closeModal();
+      toast("Rutina guardada", "success");
+    };
+    $("#closeTplW").addEventListener("click", closeModal);
+    $("#cancelTplW").addEventListener("click", closeModal);
+    $("#saveTplW").addEventListener("click", submit);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+  }
+
+  function useTemplate(id) {
+    const t = DB.templateById(id);
+    if (!t) return;
+    const entries = (t.entries || [])
+      .filter((en) => DB.exerciseById(en.exerciseId))
+      .map((en) => ({
+        exerciseId: en.exerciseId,
+        sets: en.sets.map((s) => ({ ...s })),
+      }));
+    draft = { date: todayISO(), groups: [...(t.groups || [])], notes: "", entries };
+    closeModal();
+    setView("today");
+    toast(`Rutina "${t.name}" cargada`, "success");
+  }
+
+  /* ============================================================
+     VIEW: TEMPLATES (management)
+     ============================================================ */
+  function renderTemplates() {
+    const tpls = DB.sortedTemplates();
+
+    main.innerHTML = `
+      <div class="view">
+        <div class="view-head">
+          <div class="view-head-row">
+            <div>
+              <span class="eyebrow">Plantillas</span>
+              <h1>Rutinas</h1>
+              <p class="subtitle">${tpls.length ? tpls.length + " rutinas guardadas. Pulsa Empezar para cargar una en el entreno de hoy." : "Guarda tus rutinas habituales y reutilízalas en un toque."}</p>
+            </div>
+            <button class="btn btn-primary" id="newTemplateBtn">
+              <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+              Crear rutina
+            </button>
+          </div>
+        </div>
+        ${tpls.length ? `<div class="tpl-grid">${tpls.map(templateCard).join("")}</div>`
+          : `<div class="empty-hint"><span class="emoji">📋</span>Todavía no tienes rutinas.<br>Crea una desde cero, o en <b>Entreno de hoy</b> pulsa <b>Guardar como rutina</b>.</div>`}
+      </div>`;
+
+    $("#newTemplateBtn").addEventListener("click", () => { draft = newDraft(); setView("today"); toast("Monta tu rutina y pulsa «Guardar como rutina»", "info"); });
+    $$("[data-use-tpl]").forEach((b) => b.addEventListener("click", () => useTemplate(b.dataset.useTpl)));
+    $$("[data-rename-tpl]").forEach((b) => b.addEventListener("click", () => promptRenameTemplate(b.dataset.renameTpl)));
+    $$("[data-del-tpl]").forEach((b) => b.addEventListener("click", () => confirmDeleteTemplate(b.dataset.delTpl)));
+  }
+
+  function templateCard(t) {
+    const tags = (t.groups || []).map((k) => {
+      const g = G[k]; return g ? `<span class="g-tag" style="background:${g.color}">${g.name}</span>` : "";
+    }).join("");
+    const exItems = (t.entries || []).map((en) => {
+      const ex = DB.exerciseById(en.exerciseId);
+      if (!ex) return "";
+      const g = G[ex.group];
+      return `<li><span class="ex-dot" style="background:${g.color}"></span>${escapeHtml(ex.name)} <em>${en.sets.length}×</em></li>`;
+    }).join("");
+    const sets = (t.entries || []).reduce((a, en) => a + en.sets.length, 0);
+
+    return `<div class="card tpl-card">
+      <div class="tpl-head">
+        <h3 class="tpl-name">${escapeHtml(t.name)}</h3>
+        <div class="row" style="gap:6px">
+          <button class="icon-btn" data-rename-tpl="${t.id}" title="Renombrar"><svg viewBox="0 0 24 24"><path d="M4 20h4L18 10l-4-4L4 16v4z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/></svg></button>
+          <button class="icon-btn danger" data-del-tpl="${t.id}" title="Eliminar"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v13a1 1 0 001 1h8a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg></button>
+        </div>
+      </div>
+      <div class="tpl-tags">${tags}</div>
+      <ul class="tpl-ex">${exItems}</ul>
+      <div class="tpl-foot">
+        <span class="tpl-meta">${(t.entries || []).length} ejercicios · ${sets} series</span>
+        <button class="btn btn-accent btn-sm" data-use-tpl="${t.id}">
+          <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7L8 5z" stroke="currentColor" stroke-width="1.6" fill="currentColor" stroke-linejoin="round"/></svg>
+          Empezar
+        </button>
+      </div>
+    </div>`;
+  }
+
+  function promptRenameTemplate(id) {
+    const t = DB.templateById(id);
+    if (!t) return;
+    openModal(`
+      <div class="modal-head"><div><h2>Renombrar rutina</h2></div>
+        <button class="icon-btn" id="closeRen"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="modal-field"><label>Nombre</label><input class="input" id="renName" value="${escapeHtml(t.name)}" autocomplete="off"></div>
+      <div class="modal-actions"><button class="btn btn-ghost" id="cancelRen">Cancelar</button><button class="btn btn-primary" id="saveRen">Guardar</button></div>
+    `);
+    const input = $("#renName"); input.focus(); input.select();
+    const submit = () => { DB.renameTemplate(id, input.value); closeModal(); toast("Rutina renombrada", "success"); renderTemplates(); };
+    $("#closeRen").addEventListener("click", closeModal);
+    $("#cancelRen").addEventListener("click", closeModal);
+    $("#saveRen").addEventListener("click", submit);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+  }
+
+  function confirmDeleteTemplate(id) {
+    const t = DB.templateById(id);
+    if (!t) return;
+    openModal(`
+      <div class="modal-head"><div><h2>Eliminar rutina</h2><p>Esto no afecta a tus entrenos registrados.</p></div></div>
+      <p class="text-dim">Se eliminará la rutina <b style="color:var(--ink)">${escapeHtml(t.name)}</b>.</p>
+      <div class="modal-actions"><button class="btn btn-ghost" id="cancelDelT">Cancelar</button><button class="btn btn-danger" id="confirmDelT">Sí, eliminar</button></div>
+    `);
+    $("#cancelDelT").addEventListener("click", closeModal);
+    $("#confirmDelT").addEventListener("click", () => { DB.deleteTemplate(id); closeModal(); toast("Rutina eliminada", "info"); renderTemplates(); });
   }
 
   /* ============================================================
@@ -543,6 +828,7 @@
     });
     $$("[data-edit]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); editWorkout(b.dataset.edit); }));
     $$("[data-del]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); confirmDeleteWorkout(b.dataset.del); }));
+    $$("[data-tpl-from]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); templateFromWorkout(b.dataset.tplFrom); }));
   }
 
   function historyCard(w) {
@@ -561,7 +847,10 @@
       const ex = DB.exerciseById(en.exerciseId);
       if (!ex) return "";
       const g = G[ex.group];
-      const pills = en.sets.map((s) => `<span class="set-pill"><b>${fmtNum(s.weight)}</b>kg × <b>${s.reps}</b></span>`).join("");
+      const pills = en.sets.map((s) => isCardio(ex.group)
+        ? `<span class="set-pill">${s.min ? `<b>${fmtNum(s.min)}</b> min` : ""}${s.min && s.km ? " · " : ""}${s.km ? `<b>${fmtNum(s.km)}</b> km` : ""}</span>`
+        : `<span class="set-pill"><b>${fmtNum(s.weight)}</b>kg × <b>${s.reps}</b></span>`
+      ).join("");
       return `<div class="history-ex">
         <div class="history-ex-name"><span class="ex-dot" style="background:${g.color}"></span>${escapeHtml(ex.name)}</div>
         <div class="history-sets">${pills}</div>
@@ -589,6 +878,7 @@
         ${w.notes ? `<div class="history-ex text-dim" style="font-size:13px"><b style="color:var(--text-faint);font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:.5px">Nota</b><br>${escapeHtml(w.notes)}</div>` : ""}
         <div class="history-actions">
           <button class="btn btn-ghost btn-sm" data-edit="${w.id}"><svg viewBox="0 0 24 24"><path d="M4 20h4L18 10l-4-4L4 16v4z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/></svg>Editar</button>
+          <button class="btn btn-ghost btn-sm" data-tpl-from="${w.id}"><svg viewBox="0 0 24 24"><path d="M5 5h11l3 3v11H5V5z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/><path d="M9 5v5h5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/></svg>Guardar como rutina</button>
           <button class="btn btn-danger btn-sm" data-del="${w.id}"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v13a1 1 0 001 1h8a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>Eliminar</button>
         </div>
       </div>
@@ -753,7 +1043,7 @@
 
     // exercise options + default progression
     const usedExIds = [...new Set(asc.flatMap((w) => (w.entries || []).map((en) => en.exerciseId)))];
-    const usedEx = usedExIds.map((id) => DB.exerciseById(id)).filter(Boolean);
+    const usedEx = usedExIds.map((id) => DB.exerciseById(id)).filter((e) => e && e.group !== "cardio");
     usedEx.sort((a, b) => a.name.localeCompare(b.name));
     const exerciseOptions = usedEx.map((e) => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join("");
     if (!statsExercise || !usedEx.find((e) => e.id === statsExercise)) {
@@ -978,7 +1268,19 @@
   /* ============================================================
      BOOT
      ============================================================ */
-  DB.load();
-  draft = newDraft();
-  setView("today");
-})();
+  function boot() {
+    DB.load();
+    draft = newDraft();
+    setView("today");
+    // Re-render current view when the theme changes (recolors charts).
+    global.__onThemeChange = function () { render(); };
+  }
+
+  // Auth gate: in backend mode this shows login first and pulls the
+  // user's data; in local mode (file:// or no server) it boots directly.
+  if (global.Auth && typeof global.Auth.init === "function") {
+    global.Auth.init({ onReady: boot });
+  } else {
+    boot();
+  }
+})(window);

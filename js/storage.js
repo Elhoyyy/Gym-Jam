@@ -126,13 +126,19 @@
     return {
       version: 1,
       exercises: seedExercises(),
-      workouts: [],   // {id, date, groups:[], notes, entries:[{exerciseId, sets:[{weight, reps}]}]}
+      workouts: [],    // {id, date, groups:[], notes, entries:[{exerciseId, sets:[{weight, reps}]}]}
+      templates: [],   // {id, name, groups:[], entries:[{exerciseId, sets:[{weight, reps}]}]}
       settings: { unit: "kg" },
     };
   }
 
   /* --- Load / save ------------------------------------------ */
   let state = null;
+  let cacheKey = STORAGE_KEY;   // localStorage key (per-user when logged in)
+  const saveHooks = [];         // called after every persisted change (for cloud sync)
+
+  function setCacheKey(key) { cacheKey = key || STORAGE_KEY; }
+  function onSave(fn) { if (typeof fn === "function") saveHooks.push(fn); }
 
   // Add any default exercises the user doesn't already have (non-destructive).
   function mergeDefaults() {
@@ -151,17 +157,22 @@
     return added;
   }
 
+  // Normalize a raw state object into a valid state (in place on `state`).
+  function normalize() {
+    if (!Array.isArray(state.exercises) || !state.exercises.length) {
+      state.exercises = seedExercises();
+    }
+    if (!Array.isArray(state.workouts)) state.workouts = [];
+    if (!Array.isArray(state.templates)) state.templates = [];
+    return mergeDefaults();
+  }
+
   function load() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) { state = defaultState(); save(); return state; }
-      const parsed = JSON.parse(raw);
-      state = Object.assign(defaultState(), parsed);
-      if (!Array.isArray(state.exercises) || !state.exercises.length) {
-        state.exercises = seedExercises();
-      }
-      if (!Array.isArray(state.workouts)) state.workouts = [];
-      if (mergeDefaults() > 0) save();
+      const raw = localStorage.getItem(cacheKey);
+      if (!raw) { state = defaultState(); save(true); return state; }
+      state = Object.assign(defaultState(), JSON.parse(raw));
+      if (normalize() > 0) save(true);
       return state;
     } catch (e) {
       console.error("No se pudo cargar; se reinicia estado.", e);
@@ -170,12 +181,21 @@
     }
   }
 
-  function save() {
+  // Replace the whole state (e.g. pulled from the server). Does not trigger sync.
+  function replaceState(obj) {
+    state = Object.assign(defaultState(), obj || {});
+    normalize();
+    save(true);
+    return state;
+  }
+
+  function save(silent) {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(cacheKey, JSON.stringify(state));
     } catch (e) {
       console.error("No se pudo guardar en localStorage.", e);
     }
+    if (!silent) saveHooks.forEach((h) => { try { h(state); } catch (_) {} });
   }
 
   function get() { return state || load(); }
@@ -205,14 +225,20 @@
 
   /* --- Workouts --------------------------------------------- */
   function saveWorkout(workout) {
-    // Strip empty sets / entries
+    // Strip empty sets / entries (cardio sets use min/km instead of weight/reps)
     workout.entries = (workout.entries || [])
-      .map((en) => ({
-        exerciseId: en.exerciseId,
-        sets: (en.sets || []).filter(
-          (s) => Number(s.weight) >= 0 && Number(s.reps) > 0
-        ),
-      }))
+      .map((en) => {
+        const ex = exerciseById(en.exerciseId);
+        const cardio = ex && ex.group === "cardio";
+        return {
+          exerciseId: en.exerciseId,
+          sets: (en.sets || []).filter((s) =>
+            cardio
+              ? (Number(s.min) > 0 || Number(s.km) > 0)
+              : (Number(s.weight) >= 0 && Number(s.reps) > 0)
+          ),
+        };
+      })
       .filter((en) => en.sets.length > 0);
 
     if (workout.id) {
@@ -238,6 +264,49 @@
 
   function sortedWorkouts() {
     return [...state.workouts].sort((a, b) => (a.date < b.date ? 1 : -1));
+  }
+
+  /* --- Templates (routines) --------------------------------- */
+  function saveTemplate(tpl) {
+    tpl.entries = (tpl.entries || [])
+      .map((en) => ({
+        exerciseId: en.exerciseId,
+        sets: (en.sets || []).map((s) => ({ ...s })),
+      }))
+      .filter((en) => en.sets.length > 0);
+
+    if (tpl.id) {
+      const idx = state.templates.findIndex((t) => t.id === tpl.id);
+      if (idx >= 0) state.templates[idx] = tpl;
+      else state.templates.push(tpl);
+    } else {
+      tpl.id = uid();
+      tpl.createdAt = Date.now();
+      state.templates.push(tpl);
+    }
+    save();
+    return tpl;
+  }
+
+  function deleteTemplate(id) {
+    state.templates = state.templates.filter((t) => t.id !== id);
+    save();
+  }
+
+  function templateById(id) {
+    return state.templates.find((t) => t.id === id) || null;
+  }
+
+  function renameTemplate(id, name) {
+    const t = templateById(id);
+    if (t) { t.name = (name || "").trim() || t.name; save(); }
+    return t;
+  }
+
+  function sortedTemplates() {
+    return [...state.templates].sort((a, b) =>
+      (a.name || "").localeCompare(b.name || "", "es", { sensitivity: "base" })
+    );
   }
 
   /* --- Metrics helpers -------------------------------------- */
@@ -279,6 +348,7 @@
     if (!Array.isArray(state.exercises) || !state.exercises.length) {
       state.exercises = seedExercises();
     }
+    if (!Array.isArray(state.templates)) state.templates = [];
     save();
     return state;
   }
@@ -294,7 +364,9 @@
     load, save, get, uid,
     addExercise, deleteExercise, exerciseById,
     saveWorkout, deleteWorkout, workoutById, sortedWorkouts,
+    saveTemplate, deleteTemplate, templateById, renameTemplate, sortedTemplates,
     setVolume, workoutVolume, workoutSetCount, estimate1RM,
     exportJSON, importJSON, resetAll,
+    setCacheKey, onSave, replaceState,
   };
 })(window);

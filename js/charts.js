@@ -1,11 +1,20 @@
 /* ============================================================
-   GymAndJam — Lightweight SVG charts (no dependencies)
+   Gym&Jam — Lightweight SVG charts (no dependencies)
    Returns SVG markup strings. Responsive via viewBox.
+   Colors adapt to the active light/dark theme.
    ============================================================ */
 (function (global) {
   "use strict";
 
   const NS = 'xmlns="http://www.w3.org/2000/svg"';
+
+  function themeColors() {
+    const dark = typeof document !== "undefined" &&
+      document.documentElement.getAttribute("data-theme") === "dark";
+    return dark
+      ? { grid: "#302b21", axis: "#8f8774", center: "#f2eee5", sub: "#a79f8d", dot: "#1e1c16", ring: "#302b21" }
+      : { grid: "#e7e1d3", axis: "#a49d8b", center: "#1b1a16", sub: "#6a6459", dot: "#ffffff", ring: "#ece7db" };
+  }
 
   function esc(s) {
     return String(s).replace(/[&<>"]/g, (c) =>
@@ -34,10 +43,11 @@
   // data: [{label, value}]
   function lineChart(data, opts) {
     opts = opts || {};
+    const tc = themeColors();
     const W = 640, H = 260;
     const padL = 46, padR = 18, padT = 18, padB = 34;
-    const color = opts.color || "#7c5cff";
-    const color2 = opts.color2 || "#ff5d8f";
+    const color = opts.color || "#e0451f";
+    const color2 = opts.color2 || "#c07a1e";
     const gid = "g" + Math.random().toString(36).slice(2, 7);
 
     if (!data.length) return emptyChart(W, H);
@@ -49,22 +59,20 @@
     const x = (i) => padL + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW);
     const y = (v) => padT + innerH - (v / maxV) * innerH;
 
-    // grid + y labels
     let grid = "";
     const rows = 4;
     for (let r = 0; r <= rows; r++) {
       const gy = padT + (r / rows) * innerH;
       const val = maxV * (1 - r / rows);
-      grid += `<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${W - padR}" y2="${gy.toFixed(1)}" stroke="#e7e1d3" stroke-width="1" stroke-dasharray="3 4"/>`;
-      grid += `<text x="${padL - 8}" y="${(gy + 4).toFixed(1)}" fill="#a49d8b" font-size="11" text-anchor="end" font-family="Inter">${fmt(val)}</text>`;
+      grid += `<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${W - padR}" y2="${gy.toFixed(1)}" stroke="${tc.grid}" stroke-width="1" stroke-dasharray="3 4"/>`;
+      grid += `<text x="${padL - 8}" y="${(gy + 4).toFixed(1)}" fill="${tc.axis}" font-size="11" text-anchor="end" font-family="Inter">${fmt(val)}</text>`;
     }
 
-    // x labels (max ~7)
     let xlabels = "";
     const step = Math.max(1, Math.ceil(n / 7));
     data.forEach((d, i) => {
       if (i % step === 0 || i === n - 1) {
-        xlabels += `<text x="${x(i).toFixed(1)}" y="${H - 12}" fill="#a49d8b" font-size="10.5" text-anchor="middle" font-family="Inter">${esc(d.label)}</text>`;
+        xlabels += `<text x="${x(i).toFixed(1)}" y="${H - 12}" fill="${tc.axis}" font-size="10.5" text-anchor="middle" font-family="Inter">${esc(d.label)}</text>`;
       }
     });
 
@@ -73,7 +81,7 @@
 
     let dots = "";
     data.forEach((d, i) => {
-      dots += `<circle cx="${x(i).toFixed(1)}" cy="${y(d.value).toFixed(1)}" r="3.5" fill="${color}" stroke="#ffffff" stroke-width="2"><title>${esc(d.label)}: ${fmt(d.value)}</title></circle>`;
+      dots += `<circle cx="${x(i).toFixed(1)}" cy="${y(d.value).toFixed(1)}" r="3.5" fill="${color}" stroke="${tc.dot}" stroke-width="2"><title>${esc(d.label)}: ${fmt(d.value)}</title></circle>`;
     });
 
     return `<svg ${NS} viewBox="0 0 ${W} ${H}" role="img">
@@ -99,9 +107,10 @@
   // data: [{label, value, color?}]
   function barChart(data, opts) {
     opts = opts || {};
+    const tc = themeColors();
     const W = 640, H = 260;
     const padL = 46, padR = 18, padT = 18, padB = 34;
-    const baseColor = opts.color || "#7c5cff";
+    const baseColor = opts.color || "#2f6690";
 
     if (!data.length) return emptyChart(W, H);
 
@@ -118,8 +127,8 @@
     for (let r = 0; r <= rows; r++) {
       const gy = padT + (r / rows) * innerH;
       const val = maxV * (1 - r / rows);
-      grid += `<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${W - padR}" y2="${gy.toFixed(1)}" stroke="#e7e1d3" stroke-width="1" stroke-dasharray="3 4"/>`;
-      grid += `<text x="${padL - 8}" y="${(gy + 4).toFixed(1)}" fill="#a49d8b" font-size="11" text-anchor="end" font-family="Inter">${fmt(val)}</text>`;
+      grid += `<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${W - padR}" y2="${gy.toFixed(1)}" stroke="${tc.grid}" stroke-width="1" stroke-dasharray="3 4"/>`;
+      grid += `<text x="${padL - 8}" y="${(gy + 4).toFixed(1)}" fill="${tc.axis}" font-size="11" text-anchor="end" font-family="Inter">${fmt(val)}</text>`;
     }
 
     let bars = "";
@@ -130,7 +139,7 @@
       const bh = padT + innerH - by;
       const c = d.color || baseColor;
       bars += `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, bh).toFixed(1)}" rx="6" fill="${c}"><title>${esc(d.label)}: ${fmt(d.value)}</title></rect>`;
-      bars += `<text x="${cx.toFixed(1)}" y="${H - 12}" fill="#6a6459" font-size="10.5" text-anchor="middle" font-family="Inter">${esc(d.label)}</text>`;
+      bars += `<text x="${cx.toFixed(1)}" y="${H - 12}" fill="${tc.sub}" font-size="10.5" text-anchor="middle" font-family="Inter">${esc(d.label)}</text>`;
     });
 
     return `<svg ${NS} viewBox="0 0 ${W} ${H}" role="img">${grid}${bars}</svg>`;
@@ -140,11 +149,12 @@
   // data: [{label, value, color}]
   function donutChart(data, opts) {
     opts = opts || {};
+    const tc = themeColors();
     const size = 220, r = 88, r2 = 58, cx = size / 2, cy = size / 2;
     const total = data.reduce((a, d) => a + d.value, 0);
 
     if (!total) {
-      return `<svg ${NS} viewBox="0 0 ${size} ${size}"><circle cx="${cx}" cy="${cy}" r="${(r + r2) / 2}" fill="none" stroke="#ece7db" stroke-width="${r - r2}"/><text x="${cx}" y="${cy + 5}" fill="#a49d8b" font-size="13" text-anchor="middle" font-family="Inter">Sin datos</text></svg>`;
+      return `<svg ${NS} viewBox="0 0 ${size} ${size}"><circle cx="${cx}" cy="${cy}" r="${(r + r2) / 2}" fill="none" stroke="${tc.ring}" stroke-width="${r - r2}"/><text x="${cx}" y="${cy + 5}" fill="${tc.axis}" font-size="13" text-anchor="middle" font-family="Inter">Sin datos</text></svg>`;
     }
 
     let a0 = -Math.PI / 2;
@@ -167,13 +177,14 @@
 
     return `<svg ${NS} viewBox="0 0 ${size} ${size}" role="img">
       ${arcs}
-      <text x="${cx}" y="${cy - 2}" fill="#1b1a16" font-size="26" font-weight="700" text-anchor="middle" font-family="Space Grotesk">${esc(centerLabel)}</text>
-      <text x="${cx}" y="${cy + 18}" fill="#6a6459" font-size="12" text-anchor="middle" font-family="Inter">${esc(centerSub)}</text>
+      <text x="${cx}" y="${cy - 2}" fill="${tc.center}" font-size="26" font-weight="700" text-anchor="middle" font-family="Space Grotesk">${esc(centerLabel)}</text>
+      <text x="${cx}" y="${cy + 18}" fill="${tc.sub}" font-size="12" text-anchor="middle" font-family="Inter">${esc(centerSub)}</text>
     </svg>`;
   }
 
   function emptyChart(W, H) {
-    return `<svg ${NS} viewBox="0 0 ${W} ${H}"><text x="${W / 2}" y="${H / 2}" fill="#a49d8b" font-size="14" text-anchor="middle" font-family="Inter">Sin datos suficientes todavía</text></svg>`;
+    const tc = themeColors();
+    return `<svg ${NS} viewBox="0 0 ${W} ${H}"><text x="${W / 2}" y="${H / 2}" fill="${tc.axis}" font-size="14" text-anchor="middle" font-family="Inter">Sin datos suficientes todavía</text></svg>`;
   }
 
   global.Charts = { lineChart, barChart, donutChart, fmt };

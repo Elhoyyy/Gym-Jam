@@ -1,8 +1,11 @@
 {
   "name": "gymandjam",
   "version": "1.0.0",
-  "description": "Diario de entrenamiento moderno y open source. Registra kilos y repeticiones, organiza tus entrenos por grupo muscular y visualiza tu progreso con estadísticas.",
+  "description": "Gym&Jam · Diario de entrenamiento open source y self-hosted. Registra kilos y repeticiones, organiza entrenos por grupo muscular, plantillas de rutina, estadísticas, y login con base de datos local (SQLite).",
   "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js"

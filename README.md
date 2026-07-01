@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🏋️ GymAndJam
+# 🏋️ Gym&Jam
 
 ### Tu diario de entrenamiento — moderno, bonito y open source.
 
@@ -27,34 +27,52 @@ Registra **kilos y repeticiones**, organiza tus entrenos por **grupo muscular** 
 - **Detección de PR** — marca automáticamente cuando superas tu mejor marca.
 - **Racha de entrenamiento** 🔥 para mantener la motivación.
 - **Historial** completo, expandible, editable y eliminable.
+- **Plantillas de rutina** — guarda tus rutinas (Push/Pull/Legs…) y reutilízalas en un toque.
+- **Cuentas con login/registro** (opcional) y **base de datos local SQLite** para uso multidispositivo self-hosted.
 - **Import / Export** de todos tus datos en un JSON (backup y portabilidad).
-- **100% offline** — todo se guarda en tu navegador (`localStorage`).
 - **Responsive** — diseñado para móvil y escritorio.
 
 ## 🚀 Cómo usarlo
 
-**Opción A — Servidor local (recomendado):**
+Requiere **Node.js ≥ 22.5** (usa el SQLite nativo `node:sqlite`). Sin dependencias externas.
+
+**Opción A — Web con cuentas (self-hosted, recomendado):**
 
 ```bash
 npm start
 ```
 
-Luego abre <http://localhost:5173>. No instala nada (0 dependencias, solo Node.js).
+Abre <http://localhost:5173>, **regístrate** y tus datos se guardarán en una base de
+datos local (`data/gymandjam.db`). Ideal para acceder desde varios dispositivos en tu red.
 
-**Opción B — Abrir el archivo directamente:**
+**Opción B — Local sin servidor:**
 
-Haz doble clic en `index.html`. Funciona sin servidor.
+Haz doble clic en `index.html`. Funciona en modo local (sin cuenta), guardando en el
+navegador (`localStorage`). Mismo app, sin backend.
+
+## 🔐 Cuentas y datos
+
+- **Contraseñas** cifradas con `scrypt` + salt (nunca en texto plano).
+- **Sesiones** con tokens firmados (HMAC-SHA256); el secreto se guarda en `data/secret.key`.
+- Cada usuario tiene su propio estado (entrenos, rutinas, ejercicios) en SQLite.
+- El cliente sincroniza automáticamente y cachea en `localStorage` para funcionar offline.
+- La carpeta `data/` está en `.gitignore`: **nunca se sube tu base de datos ni el secreto**.
+
+> ⚠️ Pensado para **self-hosting** (tu máquina o red local). Si lo expones a Internet,
+> ponlo detrás de **HTTPS** (por ejemplo con un reverse proxy como Caddy/Nginx).
 
 ## 🧱 Estructura
 
 ```
-GymAndJam/
+Gym&Jam/
 ├─ index.html         # Estructura y layout
-├─ css/styles.css     # Sistema de diseño (tema oscuro)
+├─ css/styles.css     # Sistema de diseño
 ├─ js/storage.js      # Capa de datos + biblioteca de ejercicios
 ├─ js/charts.js       # Gráficas SVG sin dependencias
+├─ js/auth.js         # Login/registro + sincronización con el servidor
 ├─ js/app.js          # Lógica, vistas e interacciones
-└─ server.js          # Servidor estático mínimo (opcional)
+├─ server.js          # Servidor: estáticos + API + SQLite + auth
+└─ data/              # Base de datos y secreto (generado, ignorado por git)
 ```
 
 ## 🧮 Cómo se calculan las métricas
@@ -65,10 +83,13 @@ GymAndJam/
 
 ## 🗺️ Ideas de futuro (roadmap)
 
-- [ ] Plantillas de rutina reutilizables
-- [ ] Temporizador de descanso entre series
+- [x] Plantillas de rutina reutilizables
+- [x] Cuentas con login/registro + base de datos local
+- [x] Modo oscuro
+- [x] Registro específico de cardio (tiempo y distancia)
+- [x] Temporizador de descanso entre series
 - [ ] Objetivos y seguimiento de peso corporal
-- [ ] Sincronización opcional / PWA instalable
+- [ ] PWA instalable + offline real
 - [ ] Exportar informe en PDF
 
 ## 🤝 Contribuir
