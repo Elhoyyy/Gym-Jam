@@ -1,0 +1,17 @@
+{
+  "name": "gymandjam",
+  "version": "1.0.0",
+  "description": "Diario de entrenamiento moderno y open source. Registra kilos y repeticiones, organiza tus entrenos por grupo muscular y visualiza tu progreso con estadísticas.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["gym", "workout", "fitness", "tracker", "training", "open-source", "entrenamiento"],
+  "license": "MIT",
+  "author": "",
+  "repository": {
+    "type": "git",
+    "url": ""
+  }
+}

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d0e14" />
+  <meta name="description" content="GymAndJam · Organiza tus entrenos, registra kilos y repeticiones, y visualiza tu progreso con estadísticas potentes." />
+  <title>GymAndJam · Tu diario de entrenamiento</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%8B%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Sidebar / Nav -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6.5 8.5v7M3.5 10v4M17.5 8.5v7M20.5 10v4M6.5 12h11" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-name">GymAndJam</span>
+          <span class="brand-tag">Training Journal</span>
+        </div>
+      </div>
+
+      <nav class="nav" id="nav">
+        <div class="nav-label">Menú</div>
+        <button class="nav-item is-active" data-view="today">
+          <svg viewBox="0 0 24 24"><path d="M12 4v16m8-8H4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <span>Entreno de hoy</span>
+        </button>
+        <button class="nav-item" data-view="history">
+          <svg viewBox="0 0 24 24"><path d="M12 8v4l3 2M21 12a9 9 0 1 1-9-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M21 4v4h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Historial</span>
+        </button>
+        <button class="nav-item" data-view="stats">
+          <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-6M22 20H2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <span>Estadísticas</span>
+        </button>
+        <button class="nav-item" data-view="exercises">
+          <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <span>Ejercicios</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="streak-badge" id="streakBadge" title="Racha de entrenamiento">
+          <div class="streak-top">
+            <span class="streak-num" id="streakNum">0</span>
+            <span class="streak-unit">días</span>
+          </div>
+          <span class="streak-label">Racha actual</span>
+        </div>
+        <div class="sidebar-actions">
+          <button class="ghost-btn" id="exportBtn" title="Exportar datos">Exportar</button>
+          <button class="ghost-btn" id="importBtn" title="Importar datos">Importar</button>
+        </div>
+        <input type="file" id="importFile" accept="application/json" hidden />
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="main" id="main">
+      <!-- Views injected by JS -->
+    </main>
+  </div>
+
+  <!-- Mobile bottom nav -->
+  <nav class="mobile-nav" id="mobileNav">
+    <button class="mnav-item is-active" data-view="today"><svg viewBox="0 0 24 24"><path d="M12 4v16m8-8H4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Entreno</span></button>
+    <button class="mnav-item" data-view="history"><svg viewBox="0 0 24 24"><path d="M12 8v4l3 2M21 12a9 9 0 1 1-9-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><path d="M21 4v4h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Historial</span></button>
+    <button class="mnav-item" data-view="stats"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-6M22 20H2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Stats</span></button>
+    <button class="mnav-item" data-view="exercises"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Ejercicios</span></button>
+  </nav>
+
+  <!-- Toast host -->
+  <div class="toast-host" id="toastHost"></div>
+
+  <!-- Modal host -->
+  <div class="modal-backdrop" id="modalBackdrop" hidden>
+    <div class="modal" id="modal" role="dialog" aria-modal="true"></div>
+  </div>
+
+  <script src="js/storage.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
