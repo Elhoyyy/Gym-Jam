@@ -2169,11 +2169,13 @@
   }
 
   function openBarcode(meal) {
-    const canScan = typeof window.BarcodeDetector !== "undefined" && navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
-    let stream = null, raf = null, detector = null;
+    const hasNative = typeof window.BarcodeDetector !== "undefined";
+    const canScan = navigator.mediaDevices && navigator.mediaDevices.getUserMedia && (hasNative || window.ZXing);
+    let stream = null, raf = null, detector = null, zx = null;
     const stopScan = () => {
       if (raf) { cancelAnimationFrame(raf); raf = null; }
       if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+      if (zx) { try { zx.reset(); } catch (_) {} zx = null; }
     };
 
     openModal(`
@@ -2210,11 +2212,20 @@
     const startBtn = $("#bcStart");
     if (startBtn) startBtn.addEventListener("click", async () => {
       const video = $("#bcVideo");
+      $("#bcScan").classList.add("live");
+      startBtn.textContent = "Escaneando…"; startBtn.disabled = true;
+      if (!hasNative && window.ZXing) {
+        try {
+          zx = new window.ZXing.BrowserMultiFormatReader();
+          zx.decodeFromConstraints({ video: { facingMode: { ideal: "environment" } } }, video, (result) => {
+            if (result) lookup(result.getText ? result.getText() : result.text);
+          });
+        } catch (e) { toast("No se pudo abrir la cámara", "error"); }
+        return;
+      }
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
         video.srcObject = stream; await video.play();
-        $("#bcScan").classList.add("live");
-        startBtn.textContent = "Escaneando…"; startBtn.disabled = true;
         detector = new window.BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a", "upc_e"] });
         const tick = async () => {
           if (!stream) return;

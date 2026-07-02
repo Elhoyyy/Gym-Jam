@@ -4,7 +4,7 @@
    served from the network (never cached), so data stays fresh.
    Bump CACHE when you deploy changes to force an update.
    ============================================================ */
-const CACHE = "gymjam-v12";
+const CACHE = "gymjam-v13";
 const SHELL = [
   "/", "/index.html", "/css/styles.css",
   "/js/theme.js", "/js/timer.js", "/js/storage.js", "/js/exercise-media.js",
