@@ -164,6 +164,7 @@
         added++;
       }
     });
+    if (added) invalidateEx();
     return added;
   }
 
@@ -186,6 +187,7 @@
   }
 
   function load() {
+    invalidateEx();
     try {
       const raw = localStorage.getItem(cacheKey);
       if (!raw) { state = defaultState(); save(true); return state; }
@@ -202,6 +204,7 @@
   // Replace the whole state (e.g. pulled from the server). Does not trigger sync.
   function replaceState(obj) {
     state = Object.assign(defaultState(), obj || {});
+    invalidateEx();
     normalize();
     save(true);
     return state;
@@ -219,6 +222,9 @@
   function get() { return state || load(); }
 
   /* --- Exercises -------------------------------------------- */
+  let exIndex = null;   // id -> exercise (lazy cache for O(1) lookups)
+  function invalidateEx() { exIndex = null; }
+
   function addExercise(name, group) {
     name = (name || "").trim();
     if (!name) return null;
@@ -228,17 +234,20 @@
     if (exists) return exists;
     const ex = { id: uid(), name, group, custom: true };
     state.exercises.push(ex);
+    invalidateEx();
     save();
     return ex;
   }
 
   function deleteExercise(id) {
     state.exercises = state.exercises.filter((e) => e.id !== id);
+    invalidateEx();
     save();
   }
 
   function exerciseById(id) {
-    return state.exercises.find((e) => e.id === id) || null;
+    if (!exIndex) exIndex = new Map(state.exercises.map((e) => [e.id, e]));
+    return exIndex.get(id) || null;
   }
 
   /* --- Workouts --------------------------------------------- */

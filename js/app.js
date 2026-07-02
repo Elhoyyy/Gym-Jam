@@ -349,7 +349,11 @@
             <div class="ex-group">${g.name}</div>
           </div>
           <div class="ex-vol">${cardio ? "Total" : "Vol"} <b>${entryTotal(ex.group, en)}</b></div>
-          <button class="icon-btn danger" data-action="del-entry" title="Quitar ejercicio" style="margin-left:12px"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v13a1 1 0 001 1h8a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg></button>
+          <div class="ex-move">
+            <button class="icon-btn" data-action="move-up" title="Subir" ${ei === 0 ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <button class="icon-btn" data-action="move-down" title="Bajar" ${ei === draft.entries.length - 1 ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          </div>
+          <button class="icon-btn danger" data-action="del-entry" title="Quitar ejercicio"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v13a1 1 0 001 1h8a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg></button>
         </div>
         ${lastHtml}
         <div class="sets-table">
@@ -451,6 +455,13 @@
     } else if (action === "del-entry") {
       const ei = +btn.closest(".ex-block").dataset.ei;
       draft.entries.splice(ei, 1);
+      refreshEntries();
+    } else if (action === "move-up" || action === "move-down") {
+      const ei = +btn.closest(".ex-block").dataset.ei;
+      const to = action === "move-up" ? ei - 1 : ei + 1;
+      if (to < 0 || to >= draft.entries.length) return;
+      const arr = draft.entries;
+      const tmp = arr[ei]; arr[ei] = arr[to]; arr[to] = tmp;
       refreshEntries();
     }
   }
@@ -623,6 +634,17 @@
   /* ============================================================
      TEMPLATES (routines)
      ============================================================ */
+  // Existing folder names, for the datalist suggestions.
+  function folderNames() {
+    return [...new Set(DB.sortedTemplates().map((t) => t.folder).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+  }
+  function folderField(id, value) {
+    const opts = folderNames().map((f) => `<option value="${escapeHtml(f)}">`).join("");
+    return `<div class="modal-field"><label>Carpeta (opcional)</label>
+      <input class="input" id="${id}" list="${id}List" placeholder="Ej: Push/Pull/Legs, Volumen…" value="${escapeHtml(value || "")}" autocomplete="off">
+      <datalist id="${id}List">${opts}</datalist></div>`;
+  }
+
   function promptSaveTemplate() {
     if (!draft.entries.length) { toast("Añade ejercicios antes de guardar la rutina", "error"); return; }
     const suggested = draft.groups.map((k) => (G[k] || {}).name).filter(Boolean).join(" · ") || "Mi rutina";
@@ -632,6 +654,7 @@
         <button class="icon-btn" id="closeTpl"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       </div>
       <div class="modal-field"><label>Nombre de la rutina</label><input class="input" id="tplName" placeholder="Ej: Push A · Pecho, hombro y tríceps" value="${escapeHtml(suggested)}" autocomplete="off"></div>
+      ${folderField("tplFolder", "")}
       <div class="modal-actions">
         <button class="btn btn-ghost" id="cancelTpl">Cancelar</button>
         <button class="btn btn-primary" id="saveTpl">Guardar rutina</button>
@@ -642,8 +665,10 @@
     const submit = () => {
       const name = nameInput.value.trim();
       if (!name) { toast("Ponle un nombre a la rutina", "error"); return; }
+      const folder = $("#tplFolder").value.trim();
       DB.saveTemplate({
         name,
+        folder: folder || undefined,
         groups: [...draft.groups],
         entries: draft.entries.map((en) => ({
           exerciseId: en.exerciseId,
@@ -700,14 +725,16 @@
         <button class="icon-btn" id="closeTplW"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       </div>
       <div class="modal-field"><label>Nombre de la rutina</label><input class="input" id="tplNameW" value="${escapeHtml(suggested)}" autocomplete="off"></div>
+      ${folderField("tplFolderW", "")}
       <div class="modal-actions"><button class="btn btn-ghost" id="cancelTplW">Cancelar</button><button class="btn btn-primary" id="saveTplW">Guardar rutina</button></div>
     `);
     const input = $("#tplNameW"); input.focus(); input.select();
     const submit = () => {
       const name = input.value.trim();
       if (!name) { toast("Ponle un nombre a la rutina", "error"); return; }
+      const folder = $("#tplFolderW").value.trim();
       DB.saveTemplate({
-        name, groups: [...(w.groups || [])],
+        name, folder: folder || undefined, groups: [...(w.groups || [])],
         entries: (w.entries || []).map((en) => ({
           exerciseId: en.exerciseId,
           sets: en.sets.map((s) => ({ ...s })),
@@ -764,7 +791,7 @@
             </div>
           </div>
         </div>
-        ${tpls.length ? `<div class="tpl-grid">${tpls.map(templateCard).join("")}</div>`
+        ${tpls.length ? renderTemplateGroups(tpls)
           : `<div class="empty-hint"><span class="emoji">📋</span>Todavía no tienes rutinas.<br>Crea una desde cero, o en <b>Entreno de hoy</b> pulsa <b>Guardar como rutina</b>.</div>`}
       </div>`;
 
@@ -775,6 +802,23 @@
     $$("[data-share-tpl]").forEach((b) => b.addEventListener("click", () => shareTemplate(b.dataset.shareTpl)));
     $$("[data-rename-tpl]").forEach((b) => b.addEventListener("click", () => promptRenameTemplate(b.dataset.renameTpl)));
     $$("[data-del-tpl]").forEach((b) => b.addEventListener("click", () => confirmDeleteTemplate(b.dataset.delTpl)));
+  }
+
+  // Group routines by folder into collapsible sections (ungrouped first).
+  function renderTemplateGroups(tpls) {
+    const byFolder = {}; const loose = [];
+    tpls.forEach((t) => { if (t.folder) (byFolder[t.folder] = byFolder[t.folder] || []).push(t); else loose.push(t); });
+    const folders = Object.keys(byFolder).sort((a, b) => a.localeCompare(b, "es"));
+    const chevron = '<svg class="folder-chevron" viewBox="0 0 24 24" width="16" height="16"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    let html = "";
+    if (loose.length) html += `<div class="tpl-grid">${loose.map(templateCard).join("")}</div>`;
+    folders.forEach((f) => {
+      html += `<details class="folder" open>
+        <summary class="folder-head">${chevron}<span class="folder-name">${escapeHtml(f)}</span><span class="count-pill">${byFolder[f].length}</span></summary>
+        <div class="tpl-grid" style="margin-top:12px">${byFolder[f].map(templateCard).join("")}</div>
+      </details>`;
+    });
+    return html;
   }
 
   /* ---------- Sharing routines ---------------------------- */
@@ -956,14 +1000,21 @@
     const t = DB.templateById(id);
     if (!t) return;
     openModal(`
-      <div class="modal-head"><div><h2>Renombrar rutina</h2></div>
+      <div class="modal-head"><div><h2>Editar rutina</h2></div>
         <button class="icon-btn" id="closeRen"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       </div>
       <div class="modal-field"><label>Nombre</label><input class="input" id="renName" value="${escapeHtml(t.name)}" autocomplete="off"></div>
+      ${folderField("renFolder", t.folder || "")}
       <div class="modal-actions"><button class="btn btn-ghost" id="cancelRen">Cancelar</button><button class="btn btn-primary" id="saveRen">Guardar</button></div>
     `);
     const input = $("#renName"); input.focus(); input.select();
-    const submit = () => { DB.renameTemplate(id, input.value); closeModal(); toast("Rutina renombrada", "success"); renderTemplates(); };
+    const submit = () => {
+      const name = input.value.trim(); if (!name) { toast("Ponle un nombre", "error"); return; }
+      const folder = $("#renFolder").value.trim();
+      const tpl = DB.templateById(id);
+      if (tpl) { tpl.name = name; if (folder) tpl.folder = folder; else delete tpl.folder; DB.save(); }
+      closeModal(); toast("Rutina actualizada", "success"); renderTemplates();
+    };
     $("#closeRen").addEventListener("click", closeModal);
     $("#cancelRen").addEventListener("click", closeModal);
     $("#saveRen").addEventListener("click", submit);
@@ -1154,7 +1205,7 @@
 
         <div class="chart-grid">
           <div class="card chart-card">
-            <div class="chart-head"><h3>Volumen por sesión</h3><span class="hint">Últimas ${Math.min(14, workouts.length)} sesiones</span></div>
+            <div class="chart-head"><h3>Volumen por sesión</h3><span class="hint">Últimas ${stats.volumeSeries.length} sesiones</span></div>
             <div class="chart-wrap">${Charts.lineChart(stats.volumeSeries, { color: "#e0451f", color2: "#c07a1e" })}</div>
           </div>
 
@@ -1293,25 +1344,26 @@
 
   function computeStats(workouts) {
     const asc = [...workouts].sort((a, b) => (a.date < b.date ? -1 : 1));
-    const totalVolume = asc.reduce((a, w) => a + DB.workoutVolume(w), 0);
+    // Only sessions that actually moved weight count for strength volume.
+    const strengthWk = asc.filter((w) => DB.workoutVolume(w) > 0);
+    const totalVolume = strengthWk.reduce((a, w) => a + DB.workoutVolume(w), 0);
     const count = asc.length;
-    const avgVolume = count ? totalVolume / count : 0;
-    let totalSets = 0;
-    asc.forEach((w) => (totalSets += DB.workoutSetCount(w)));
+    const avgVolume = strengthWk.length ? totalVolume / strengthWk.length : 0;
 
-    // volume series (last 14)
-    const recent = asc.slice(-14);
-    const volumeSeries = recent.map((w) => ({
-      label: new Date(w.date + "T00:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "numeric" }),
+    // volume series (last 14 weighted sessions)
+    const volumeSeries = strengthWk.slice(-14).map((w) => ({
+      label: dateShort(w.date),
       value: DB.workoutVolume(w),
     }));
 
-    // group distribution (series count)
+    // group distribution (strength series only)
     const groupCounts = {};
+    let totalSets = 0;
     asc.forEach((w) => (w.entries || []).forEach((en) => {
       const ex = DB.exerciseById(en.exerciseId);
-      if (!ex) return;
+      if (!ex || ex.group === "cardio") return;
       groupCounts[ex.group] = (groupCounts[ex.group] || 0) + en.sets.length;
+      totalSets += en.sets.length;
     }));
     const groupDist = Object.entries(groupCounts)
       .map(([k, v]) => ({ label: G[k].name, value: v, color: G[k].color }))
@@ -1545,7 +1597,7 @@
     return x.toISOString().slice(0, 10);
   }
   function mondayOf(date) {
-    const d = new Date(date + (typeof date === "string" ? "T00:00:00" : ""));
+    const d = typeof date === "string" ? new Date(date + "T00:00:00") : new Date(date);
     const day = (d.getDay() + 6) % 7; // Mon=0
     d.setDate(d.getDate() - day);
     return d;
