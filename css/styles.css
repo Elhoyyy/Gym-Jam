@@ -158,6 +158,12 @@ h1, h2, h3, .brand-name, .display, .stat-value, .num { font-family: "Space Grote
 .view-head .subtitle { color: var(--text-dim); margin-top: 6px; font-size: 14.5px; max-width: 60ch; }
 .view-head-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
 
+/* Streak chip in the "today" header (mobile only; desktop has the sidebar badge) */
+.today-streak { display: none; align-items: center; gap: 7px; margin-top: 12px; padding: 7px 13px; border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border)); border-radius: 20px; background: color-mix(in srgb, var(--accent) 8%, var(--surface)); font-size: 13px; color: var(--text-dim); width: fit-content; }
+.today-streak svg { width: 16px; height: 16px; color: var(--accent); flex-shrink: 0; }
+.today-streak b { font-family: "Space Grotesk"; color: var(--ink); font-size: 15px; font-weight: 700; }
+@media (max-width: 780px) { .today-streak { display: inline-flex; } }
+
 /* ============================================================
    Buttons
    ============================================================ */
@@ -678,6 +684,12 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .fe-info { flex: 1; min-width: 0; }
 .fe-name { font-size: 14px; font-weight: 500; color: var(--ink); }
 .fe-sub { font-size: 12px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.fe-sub b { color: var(--ink); font-weight: 700; }
+.fe-macros { margin-left: 4px; }
+.fe-macros span { font-weight: 600; }
+.fe-macros .mp { color: #2f6690; }
+.fe-macros .mc { color: #c07a1e; }
+.fe-macros .mg { color: #a5324a; }
 .fe-empty { font-size: 13px; color: var(--text-faint); padding: 9px 0; }
 
 .picker-item.food-item { justify-content: space-between; align-items: center; }

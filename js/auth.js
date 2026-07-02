@@ -19,7 +19,7 @@
   async function api(path, { method = "GET", body, auth = false } = {}) {
     const headers = { "Content-Type": "application/json" };
     if (auth && token) headers["Authorization"] = "Bearer " + token;
-    const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    const res = await fetch(path, { method, headers, credentials: "same-origin", body: body ? JSON.stringify(body) : undefined });
     let data = null;
     try { data = await res.json(); } catch (_) {}
     if (!res.ok) throw Object.assign(new Error((data && data.error) || "Error"), { status: res.status });
@@ -118,12 +118,14 @@
     });
   }
 
-  function logout() {
-    localStorage.removeItem(TOKEN_KEY);
+  async function logout() {
+    try { await api("/api/logout", { method: "POST" }); } catch (_) {}
+    token = null;
+    try { localStorage.removeItem(TOKEN_KEY); } catch (_) {}
     location.reload();
   }
   function forceLogout() {
-    localStorage.removeItem(TOKEN_KEY);
+    try { localStorage.removeItem(TOKEN_KEY); } catch (_) {}
     location.reload();
   }
 
@@ -201,8 +203,8 @@
         const data = await api(path, { method: "POST", body: { username: uname, password: pw } });
         token = data.token;
         username = data.username;
-        localStorage.setItem(TOKEN_KEY, token);
-        await enterApp(tab === "register");
+        try { localStorage.setItem(TOKEN_KEY, token); } catch (_) {}
+        await enterApp(tab === "register", { uid: data.uid, username: data.username });
         el.remove();
       } catch (err) {
         showError(err.message || "No se pudo completar. Inténtalo de nuevo.");
@@ -216,10 +218,11 @@
   }
 
   /* ---------- pull server state and start ---------- */
-  async function enterApp(isNew) {
-    const payload = decodeToken(token) || {};
-    if (payload.uid != null) DB.setCacheKey("gymandjam.v1.u" + payload.uid);
-    username = username || payload.username || payload.email;
+  async function enterApp(isNew, me) {
+    me = me || {};
+    const uid = me.uid != null ? me.uid : (decodeToken(token) || {}).uid;
+    if (uid != null) DB.setCacheKey("gymandjam.v1.u" + uid);
+    username = me.username || username || (decodeToken(token) || {}).username;
 
     let serverState = {};
     try {
@@ -245,6 +248,18 @@
     if (isNew || !serverState.exercises) pushNow();
   }
 
+  // Offline start from cached per-user data (session cookie/token present but network down).
+  function offlineStart() {
+    const payload = decodeToken(token) || {};
+    if (payload.uid != null) DB.setCacheKey("gymandjam.v1.u" + payload.uid);
+    username = payload.username || payload.email;
+    DB.load();
+    registerSync();
+    mountAccount();
+    setSync("offline");
+    onReady();
+  }
+
   /* ---------- boot ---------- */
   async function init(opts) {
     onReady = (opts && opts.onReady) || function () {};
@@ -259,12 +274,20 @@
     }
 
     mode = "backend";
-    token = localStorage.getItem(TOKEN_KEY);
-    if (token && decodeToken(token)) {
-      await enterApp(false);
-    } else {
-      showAuthScreen();
+    try { token = localStorage.getItem(TOKEN_KEY); } catch (_) { token = null; }
+
+    // Ask the server who we are — works via the session cookie even if
+    // localStorage was wiped (iOS home-screen PWAs do this on relaunch).
+    let me = null;
+    try {
+      me = await api("/api/me", { auth: true });
+    } catch (err) {
+      if (err.status !== 401 && token && decodeToken(token)) { offlineStart(); return; }
+      me = null;
     }
+
+    if (me && me.username) await enterApp(false, me);
+    else showAuthScreen();
   }
 
   global.Auth = { init, logout, api, get mode() { return mode; } };

@@ -191,6 +191,7 @@
               <span class="eyebrow">${fmtDate(draft.date, { weekday: "long" })}</span>
               <h1>${draft.id ? "Editar entreno" : "Entreno de hoy"}</h1>
               <p class="subtitle">Selecciona los grupos musculares, añade ejercicios y registra tus series.</p>
+              ${(function () { const st = computeStreak(); return st > 0 ? `<div class="today-streak"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2c.5 3.5-1.5 5-3 6.5S7 12 7 14.5A5 5 0 0017 15c0-2.5-1.5-4-2.5-5.5C15.5 11 17 12 17 14a5 5 0 01-.2 1.4C18.7 14.4 20 12.4 20 10c0-4-3-6-4.5-8 .3 2-1 3-2.5 4C11.7 4.8 12.7 3.4 13 2z"/></svg><b>${st}</b> ${st === 1 ? "día" : "días"} de racha</div>` : ""; })()}
             </div>
             <div class="row wrap" style="gap:10px">
               ${DB.sortedTemplates().length ? `<button class="btn btn-ghost" id="useTemplateBtn">
@@ -1954,11 +1955,21 @@
     const meals = MEALS.map(([key, label]) => {
       const entries = dayLog(foodDate)[key];
       let mk = 0; entries.forEach((e) => (mk += (Number(e.kcal) || 0) * (Number(e.grams) || 0) / 100));
-      const rows = entries.map((e, i) => `
+      const rows = entries.map((e, i) => {
+        const f = (Number(e.grams) || 0) / 100;
+        const kc = Math.round((Number(e.kcal) || 0) * f);
+        const p = Math.round((Number(e.protein) || 0) * f);
+        const c = Math.round((Number(e.carbs) || 0) * f);
+        const gg = Math.round((Number(e.fat) || 0) * f);
+        return `
         <div class="food-entry">
-          <div class="fe-info"><div class="fe-name">${escapeHtml(e.name)}</div><div class="fe-sub">${e.grams} g · ${Math.round((Number(e.kcal) || 0) * e.grams / 100)} kcal</div></div>
+          <div class="fe-info">
+            <div class="fe-name">${escapeHtml(e.name)}</div>
+            <div class="fe-sub">${e.grams} g · <b>${kc}</b> kcal <span class="fe-macros"><span class="mp">P ${p}</span> <span class="mc">C ${c}</span> <span class="mg">G ${gg}</span></span></div>
+          </div>
           <button class="icon-btn danger" data-del-entry="${key}:${i}" title="Quitar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
-        </div>`).join("") || `<div class="fe-empty">Sin alimentos</div>`;
+        </div>`;
+      }).join("") || `<div class="fe-empty">Sin alimentos</div>`;
       return `<div class="card meal-card">
         <div class="meal-head"><h3>${label}</h3><span class="meal-kcal">${Math.round(mk)} kcal</span></div>
         ${rows}

@@ -17,7 +17,7 @@ const PORT = process.env.PORT || 5173;
 const DATA_DIR = join(__dirname, "data");
 const DB_PATH = join(DATA_DIR, "gymandjam.db");
 const SECRET_PATH = join(DATA_DIR, "secret.key");
-const TOKEN_TTL = 60 * 60 * 24 * 30; // 30 days (seconds)
+const TOKEN_TTL = 60 * 60 * 24 * 365; // 1 year (seconds)
 
 /* ---------- bootstrap data dir + secret ---------- */
 if (!existsSync(DATA_DIR)) { await mkdir(DATA_DIR, { recursive: true }); }
@@ -128,12 +128,27 @@ async function readJSON(req) {
   if (!raw) return {};
   return JSON.parse(raw);
 }
+function parseCookies(req) {
+  const out = {};
+  (req.headers.cookie || "").split(";").forEach((p) => {
+    const i = p.indexOf("=");
+    if (i > 0) out[p.slice(0, i).trim()] = p.slice(i + 1).trim();
+  });
+  return out;
+}
 function authUser(req) {
   const h = req.headers["authorization"] || "";
-  const token = h.startsWith("Bearer ") ? h.slice(7) : "";
+  let token = h.startsWith("Bearer ") ? h.slice(7) : "";
+  if (!token) token = parseCookies(req).gj_token || "";
   const payload = verifyToken(token);
   if (!payload) return null;
   return q.byId.get(payload.uid) || null;
+}
+// Persistent session cookie (survives iOS standalone PWA relaunches far
+// better than localStorage). Secure only when served over HTTPS.
+function setSessionCookie(req, res, token) {
+  const secure = req.headers["x-forwarded-proto"] === "https" ? "; Secure" : "";
+  res.setHeader("Set-Cookie", `gj_token=${token}; Path=/; Max-Age=${TOKEN_TTL}; HttpOnly; SameSite=Lax${secure}`);
 }
 const USERNAME_RE = /^[a-z0-9._-]{3,20}$/;
 
@@ -208,7 +223,9 @@ async function handleApi(req, res, url) {
     const now = Date.now();
     const info = q.insert.run(uname, salt, hash, "{}", now, now);
     const user = q.byId.get(info.lastInsertRowid);
-    return sendJSON(res, 201, { token: issueToken(user), username: user.username });
+    const token = issueToken(user);
+    setSessionCookie(req, res, token);
+    return sendJSON(res, 201, { token, username: user.username, uid: user.id });
   }
 
   if (path === "/api/login" && req.method === "POST") {
@@ -218,7 +235,22 @@ async function handleApi(req, res, url) {
     if (!user || !verifyPassword(String(password || ""), user.salt, user.hash)) {
       return sendJSON(res, 401, { error: "Usuario o contraseña incorrectos" });
     }
-    return sendJSON(res, 200, { token: issueToken(user), username: user.username });
+    const token = issueToken(user);
+    setSessionCookie(req, res, token);
+    return sendJSON(res, 200, { token, username: user.username, uid: user.id });
+  }
+
+  // Who am I? (Bearer or session cookie). Lets the client restore the session
+  // even if localStorage was wiped (common on iOS home-screen PWAs).
+  if (path === "/api/me" && req.method === "GET") {
+    const user = authUser(req);
+    if (!user) return sendJSON(res, 401, { error: "No autorizado" });
+    return sendJSON(res, 200, { username: user.username, uid: user.id });
+  }
+
+  if (path === "/api/logout" && req.method === "POST") {
+    res.setHeader("Set-Cookie", "gj_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax");
+    return sendJSON(res, 200, { ok: true });
   }
 
   if (path === "/api/state") {
