@@ -21,6 +21,11 @@ const MAP = {
   stairs: "tabler:stairs",
   jumprope: "tabler:jump-rope",
   run: "tabler:run",
+  walk: "tabler:walk",
+  swim: "tabler:swimming",
+  hiking: "tabler:mountain",
+  skate: "tabler:skateboard",
+  ski: "tabler:ski-jumping",
 };
 
 for (const [file, id] of Object.entries(MAP)) {

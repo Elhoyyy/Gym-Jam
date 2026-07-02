@@ -140,6 +140,7 @@ const CARDIO = {
   "Bicicleta estática": "bike", "Bicicleta de spinning": "bike", "Assault bike": "bike",
   "Elíptica": "elliptical", "Remo (máquina)": "rower", "Escaladora (stairmaster)": "stairs",
   "Comba": "jumprope", "Sprints": "run", "Burpees": "run",
+  "Caminar": "walk", "Nadar": "swim", "Senderismo": "hiking", "Patinar": "skate", "Esquí": "ski",
 };
 let cardioN = 0;
 mine.filter((m) => m.group === "cardio").forEach((m) => {

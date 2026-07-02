@@ -108,6 +108,8 @@
     ["Elíptica", "cardio"], ["Remo (máquina)", "cardio"],
     ["Escaladora (stairmaster)", "cardio"], ["Assault bike", "cardio"],
     ["Comba", "cardio"], ["Sprints", "cardio"], ["Burpees", "cardio"],
+    ["Caminar", "cardio"], ["Nadar", "cardio"], ["Senderismo", "cardio"],
+    ["Patinar", "cardio"], ["Esquí", "cardio"],
   ];
 
   /* --- ID helper -------------------------------------------- */

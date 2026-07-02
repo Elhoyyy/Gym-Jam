@@ -166,6 +166,32 @@
   /* ============================================================
      VIEW: TODAY (session builder)
      ============================================================ */
+  // Summary cells: strength → volume/series/exercises; cardio-only → time/distance/pace.
+  function sessionSummaryCells(w, totalVol, totalSets) {
+    const entries = w.entries || [];
+    const cardioOnly = entries.length > 0 && entries.every((en) => {
+      const ex = DB.exerciseById(en.exerciseId); return ex && ex.group === "cardio";
+    });
+    if (!cardioOnly) {
+      return `<div class="summary-cell accent"><div class="s-label">Volumen total</div><div class="s-value">${fmtNum(totalVol)} <small>kg</small></div></div>
+        <div class="summary-cell"><div class="s-label">Series</div><div class="s-value">${totalSets}</div></div>
+        <div class="summary-cell"><div class="s-label">Ejercicios</div><div class="s-value">${entries.length}</div></div>`;
+    }
+    const { km, min } = workoutCardio(w);
+    let paceKm = 0, paceMin = 0;
+    entries.forEach((en) => en.sets.forEach((s) => { if ((Number(s.km) || 0) > 0) { paceKm += Number(s.km); paceMin += Number(s.min) || 0; } }));
+    const pace = paceKm > 0 ? paceMin / paceKm : 0;
+    const tiempo = `<div class="summary-cell accent"><div class="s-label">Tiempo</div><div class="s-value">${fmtDuration(min)}</div></div>`;
+    if (km > 0) {
+      return tiempo +
+        `<div class="summary-cell"><div class="s-label">Distancia</div><div class="s-value">${fmtNum(Math.round(km * 10) / 10)} <small>km</small></div></div>` +
+        `<div class="summary-cell"><div class="s-label">Ritmo medio</div><div class="s-value">${fmtPace(pace)} <small>/km</small></div></div>`;
+    }
+    return tiempo +
+      `<div class="summary-cell"><div class="s-label">Series</div><div class="s-value">${totalSets}</div></div>` +
+      `<div class="summary-cell"><div class="s-label">Ejercicios</div><div class="s-value">${entries.length}</div></div>`;
+  }
+
   function renderToday() {
     if (!draft) draft = newDraft();
 
@@ -182,6 +208,7 @@
 
     const totalVol = DB.workoutVolume(draft);
     const totalSets = DB.workoutSetCount(draft);
+    const summaryHtml = sessionSummaryCells(draft, totalVol, totalSets);
 
     main.innerHTML = `
       <div class="view">
@@ -242,11 +269,7 @@
               </button>
             </div>
             <textarea class="input" id="sessionNotes" placeholder="¿Cómo te has sentido? Sensaciones, energía, molestias...">${escapeHtml(draft.notes || "")}</textarea>
-            <div class="summary-row">
-              <div class="summary-cell accent"><div class="s-label">Volumen total</div><div class="s-value">${fmtNum(totalVol)} <small>kg</small></div></div>
-              <div class="summary-cell"><div class="s-label">Series</div><div class="s-value">${totalSets}</div></div>
-              <div class="summary-cell"><div class="s-label">Ejercicios</div><div class="s-value">${draft.entries.length}</div></div>
-            </div>
+            <div class="summary-row">${summaryHtml}</div>
           </div>
         </div>
       </div>`;
@@ -1074,6 +1097,19 @@
     const mon = d.toLocaleDateString("es-ES", { month: "short" }).replace(".", "");
     const vol = DB.workoutVolume(w);
     const sets = DB.workoutSetCount(w);
+    const cardioOnly = (w.entries || []).length > 0 && (w.entries || []).every((en) => {
+      const ex = DB.exerciseById(en.exerciseId); return ex && ex.group === "cardio";
+    });
+    let metricsHtml;
+    if (cardioOnly) {
+      const cc = workoutCardio(w);
+      metricsHtml = `<div class="history-metric"><b>${fmtDuration(cc.min)}</b><span>tiempo</span></div>` +
+        (cc.km > 0 ? `<div class="history-metric"><b>${fmtNum(Math.round(cc.km * 10) / 10)}</b><span>km</span></div>`
+                   : `<div class="history-metric"><b>${sets}</b><span>series</span></div>`);
+    } else {
+      metricsHtml = `<div class="history-metric"><b>${fmtNum(vol)}</b><span>kg volumen</span></div>
+          <div class="history-metric"><b>${sets}</b><span>series</span></div>`;
+    }
     const groupTags = (w.groups || []).map((k) => {
       const g = G[k]; if (!g) return "";
       return `<span class="g-tag" style="background:${g.color}">${g.name}</span>`;
@@ -1104,10 +1140,7 @@
           <div class="history-groups">${groupTags}</div>
           <div class="history-summary">${escapeHtml(exNames.slice(0, 3).join(" · "))}${exNames.length > 3 ? " +" + (exNames.length - 3) : ""}</div>
         </div>
-        <div class="history-metrics">
-          <div class="history-metric"><b>${fmtNum(vol)}</b><span>kg volumen</span></div>
-          <div class="history-metric"><b>${sets}</b><span>series</span></div>
-        </div>
+        <div class="history-metrics">${metricsHtml}</div>
         <svg class="history-chevron" viewBox="0 0 24 24" width="20" height="20"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </div>
       <div class="history-body">
