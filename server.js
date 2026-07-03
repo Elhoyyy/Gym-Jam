@@ -221,6 +221,13 @@ function sanitizeShare(body) {
 async function handleApi(req, res, url) {
   const path = url.pathname;
 
+  // SECURITY: API responses are per-user and MUST NEVER be stored by any
+  // shared/intermediate cache (Nginx proxy_cache, a corporate/ISP proxy, the
+  // browser, …). Without this, a cached GET /api/me or /api/state could be
+  // served to a different visitor — i.e. "logged in as someone else".
+  res.setHeader("Cache-Control", "no-store, private, max-age=0");
+  res.setHeader("Vary", "Cookie, Authorization");
+
   if (path === "/api/health" && req.method === "GET") {
     return sendJSON(res, 200, { ok: true, service: "gymandjam", auth: true });
   }

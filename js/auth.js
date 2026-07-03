@@ -136,6 +136,10 @@
     el.id = "authOverlay";
     el.innerHTML = `
       <div class="auth-card">
+        <button class="auth-theme js-theme-toggle" type="button" id="authTheme" aria-label="Cambiar tema">
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="2"/><path d="M12 2v2.5M12 19.5V22M22 12h-2.5M4.5 12H2M19 5l-1.8 1.8M6.8 17.2 5 19M19 19l-1.8-1.8M6.8 6.8 5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
         <div class="auth-brand">
           <div class="brand-logo"><svg viewBox="0 0 24 24" fill="none"><path d="M6.5 8.5v7M3.5 10v4M17.5 8.5v7M20.5 10v4M6.5 12h11" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></div>
           <div>
@@ -166,6 +170,9 @@
         <p class="auth-foot">Tus datos se guardan <b>de forma segura en nuestro servidor</b>.</p>
       </div>`;
     document.body.appendChild(el);
+
+    const themeBtn = el.querySelector("#authTheme");
+    if (themeBtn) themeBtn.addEventListener("click", () => { if (global.Theme) global.Theme.toggle(); });
 
     let tab = "login";
     const form = el.querySelector("#authForm");
