@@ -1,7 +1,6 @@
 /* ============================================================
    Gym&Jam — Temporizador (cuenta atrás) y Cronómetro (adelante)
-   Floating panel. Opened in a given mode; each tool has a
-   "back" button to return to the tools menu.
+  Floating panel. Opened in a given mode and controlled from the tools menu.
    ============================================================ */
 (function (global) {
   "use strict";
@@ -64,7 +63,10 @@
     if (mode === "rest") { secs = remaining; frac = total > 0 ? remaining / total : 0; }
     else { secs = elapsedSec(); frac = (elapsedMs() % 60000) / 60000; }
     panel.querySelector(".tt-main").textContent = mmss(secs);
-    panel.querySelector(".timer-ms").textContent = mode === "stopwatch" ? "." + String(Math.floor((elapsedMs() % 1000) / 10)).padStart(2, "0") : "";
+    const centis = mode === "rest"
+      ? String(Math.max(0, Math.floor((remaining % 1) * 100))).padStart(2, "0")
+      : String(Math.floor((elapsedMs() % 1000) / 10)).padStart(2, "0");
+    panel.querySelector(".timer-ms").textContent = "." + centis;
     panel.querySelector(".timer-ring-fg").style.strokeDashoffset = (C * (1 - frac)).toFixed(1);
   }
 
@@ -75,10 +77,13 @@
     if (!panel) return;
     const done = mode === "rest" && total > 0 && remaining <= 0;
     paint();
+    renderTimeMeta();
     panel.querySelector(".timer-title").textContent = mode === "stopwatch" ? "Cronómetro" : "Temporizador";
     panel.classList.toggle("is-done", done);
     panel.classList.toggle("mode-stopwatch", mode === "stopwatch");
     panel.classList.toggle("mode-rest", mode === "rest");
+    const lapBtn = panel.querySelector("#timerLap");
+    if (lapBtn) lapBtn.hidden = mode !== "stopwatch";
     if (playShows !== running) {
       playShows = running;
       const play = panel.querySelector("#timerPlay");
@@ -87,7 +92,17 @@
     }
   }
 
-  function startTick() { clearInterval(tickId); tickId = setInterval(tick, mode === "stopwatch" ? 40 : 200); }
+  function renderTimeMeta() {
+    if (!panel) return;
+    const main = panel.querySelector(".tt-main");
+    const ms = panel.querySelector(".timer-ms");
+    const lapsInline = panel.querySelector(".timer-laps-inline");
+    if (main && ms && mode === "stopwatch") {
+      if (lapsInline) lapsInline.textContent = laps.length ? `${laps.length} vuelta${laps.length === 1 ? "" : "s"}` : "";
+    }
+  }
+
+  function startTick() { clearInterval(tickId); tickId = setInterval(tick, 40); }
   function stopTick() { clearInterval(tickId); tickId = null; }
   function tick() {
     if (mode === "rest") {
@@ -143,13 +158,32 @@
     box.innerHTML = html;
   }
 
-  function open(m, onBack) {
+  function resetState(nextMode) {
+    stopTick();
+    running = false;
+    playShows = null;
+    remaining = 0;
+    total = 0;
+    endAt = 0;
+    swElapsedMs = 0;
+    swStartTs = 0;
+    laps = [];
+    if (panel) {
+      panel.classList.remove("is-done");
+      const lapsBox = panel.querySelector(".timer-laps");
+      if (lapsBox) lapsBox.innerHTML = "";
+    }
+    if (nextMode !== "stopwatch" && panel) {
+      const lapsInline = panel.querySelector(".timer-laps-inline");
+      if (lapsInline) lapsInline.textContent = "";
+    }
+  }
+
+  function open(m) {
     mode = m === "stopwatch" ? "stopwatch" : "rest";
-    backCb = typeof onBack === "function" ? onBack : null;
     ensure();
-    panel.querySelector("#timerBack").style.display = backCb ? "" : "none";
+    resetState(mode);
     panel.classList.add("is-open");
-    playShows = null;   // force the play/pause icon + title to refresh for this mode
     render();
   }
   function close() { if (panel) panel.classList.remove("is-open"); }
@@ -160,7 +194,6 @@
     panel.className = "timer-panel mode-rest";
     panel.innerHTML = `
       <div class="timer-head">
-        <button class="icon-btn" id="timerBack" title="Herramientas"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <span class="timer-title">Temporizador</span>
         <button class="icon-btn" id="timerMin" title="Minimizar"><svg viewBox="0 0 24 24"><path d="M6 12h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
         <button class="icon-btn" id="timerClose" title="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
@@ -170,7 +203,7 @@
           <circle class="timer-ring-bg" cx="60" cy="60" r="${R}" fill="none" stroke-width="8"/>
           <circle class="timer-ring-fg" cx="60" cy="60" r="${R}" fill="none" stroke-width="8" stroke-linecap="round" transform="rotate(-90 60 60)" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${C.toFixed(1)}"/>
         </svg>
-        <div class="timer-time"><span class="tt-main">0:00</span><span class="timer-ms"></span></div>
+        <div class="timer-time"><span class="tt-main">0:00</span><span class="timer-ms"></span><span class="timer-laps-inline"></span></div>
       </div>
       <div class="timer-presets">
         ${PRESETS.map((s) => `<button class="timer-preset" data-sec="${s}">${mmss(s)}</button>`).join("")}
@@ -187,7 +220,6 @@
     panel.querySelector("#timerClose").addEventListener("click", close);
     panel.querySelector("#timerMin").addEventListener("click", (e) => { e.stopPropagation(); panel.classList.add("min"); });
     panel.addEventListener("click", () => { if (panel.classList.contains("min")) panel.classList.remove("min"); });
-    panel.querySelector("#timerBack").addEventListener("click", () => { close(); if (backCb) backCb(); });
     panel.querySelectorAll(".timer-preset").forEach((b) => b.addEventListener("click", () => startWith(+b.dataset.sec)));
     panel.querySelector("#timerPlay").addEventListener("click", togglePlay);
     panel.querySelector("#timerLap").addEventListener("click", (e) => { e.stopPropagation(); lap(); });

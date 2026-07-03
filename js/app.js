@@ -176,7 +176,9 @@
      STREAK
      ============================================================ */
   function computeStreak() {
-    const dates = [...new Set(DB.get().workouts.map((w) => w.date))].sort().reverse();
+    const dates = [...new Set(DB.get().workouts.map((w) => w.date))];
+    if (draft && draft.date === todayISO() && Array.isArray(draft.entries) && draft.entries.length) dates.push(todayISO());
+    dates.sort().reverse();
     if (!dates.length) return 0;
     const today = todayISO();
     const gap0 = daysBetween(today, dates[0]);
@@ -227,6 +229,8 @@
 
   function renderToday() {
     if (!draft) draft = newDraft();
+    const hasDraftData = !!(draft && (draft.entries.length || draft.groups.length || draft.notes));
+    const draftBadge = !draft.id && hasDraftData ? `<span class="draft-badge">Borrador</span>` : "";
 
     const groupChips = Object.entries(G).map(([key, g]) => {
       const sel = draft.groups.includes(key);
@@ -248,7 +252,7 @@
         <div class="view-head">
           <div class="view-head-row">
             <div>
-              <span class="eyebrow">${fmtDate(draft.date, { weekday: "long" })}</span>
+              <span class="eyebrow">${fmtDate(draft.date, { weekday: "long" })}</span> ${draftBadge}
               <h1>${draft.id ? "Editar entreno" : "Entreno de hoy"}</h1>
               <p class="subtitle">Selecciona los grupos musculares, añade ejercicios y registra tus series.</p>
               ${(function () { const st = computeStreak(); return st > 0 ? `<div class="today-streak"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2c.5 3.5-1.5 5-3 6.5S7 12 7 14.5A5 5 0 0017 15c0-2.5-1.5-4-2.5-5.5C15.5 11 17 12 17 14a5 5 0 01-.2 1.4C18.7 14.4 20 12.4 20 10c0-4-3-6-4.5-8 .3 2-1 3-2.5 4C11.7 4.8 12.7 3.4 13 2z"/></svg><b>${st}</b> ${st === 1 ? "día" : "días"} de racha</div>` : ""; })()}
@@ -714,6 +718,20 @@
   function folderNames() {
     return [...new Set(DB.sortedTemplates().map((t) => t.folder).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
   }
+  function folderOpenKey(name) {
+    return `gymandjam.templates.folder.${name}`;
+  }
+  function isFolderOpen(name) {
+    try {
+      const stored = localStorage.getItem(folderOpenKey(name));
+      return stored === null ? true : stored === "1";
+    } catch (_) {
+      return true;
+    }
+  }
+  function setFolderOpen(name, open) {
+    try { localStorage.setItem(folderOpenKey(name), open ? "1" : "0"); } catch (_) {}
+  }
   function folderField(id, value) {
     const opts = folderNames().map((f) => `<option value="${escapeHtml(f)}">`).join("");
     return `<div class="modal-field"><label>Carpeta (opcional)</label>
@@ -879,6 +897,9 @@
     $$("[data-share-folder]").forEach((b) => b.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); shareFolder(b.dataset.shareFolder); }));
     $$("[data-rename-tpl]").forEach((b) => b.addEventListener("click", () => promptRenameTemplate(b.dataset.renameTpl)));
     $$("[data-del-tpl]").forEach((b) => b.addEventListener("click", () => confirmDeleteTemplate(b.dataset.delTpl)));
+    $$("details.folder[data-folder]").forEach((details) => {
+      details.addEventListener("toggle", () => setFolderOpen(details.dataset.folder, details.open));
+    });
   }
 
   // Group routines by folder into collapsible sections (ungrouped first).
@@ -890,7 +911,7 @@
     let html = "";
     if (loose.length) html += `<div class="tpl-grid">${loose.map(templateCard).join("")}</div>`;
     folders.forEach((f) => {
-      html += `<details class="folder" open>
+      html += `<details class="folder" data-folder="${escapeHtml(f)}" ${isFolderOpen(f) ? "open" : ""}>
         <summary class="folder-head">${chevron}<span class="folder-name">${escapeHtml(f)}</span><span class="count-pill">${byFolder[f].length}</span>${isBackend() ? `<button class="icon-btn" data-share-folder="${escapeHtml(f)}" title="Compartir carpeta" style="margin-left:auto"><svg viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4M6 12v7a2 2 0 002 2h8a2 2 0 002-2v-7" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ""}</summary>
         <div class="tpl-grid" style="margin-top:12px">${byFolder[f].map(templateCard).join("")}</div>
       </details>`;
@@ -1962,11 +1983,17 @@
   /* ============================================================
      IMPORT / EXPORT
      ============================================================ */
+  function closeActiveTools() {
+    closeToolsMenu();
+    if (global.RestTimer && typeof global.RestTimer.close === "function") global.RestTimer.close();
+    if (!backdrop.hidden) closeModal();
+  }
+
   /* ---------- kg ⇄ lb converter ---------- */
   function openConverter() {
+    closeActiveTools();
     openModal(`
       <div class="modal-head">
-        <button class="icon-btn" id="convBack" title="Herramientas"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <h2 style="flex:1;font-size:20px">Conversor kg ⇄ lb</h2>
         <button class="icon-btn" id="closeConv"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       </div>
@@ -1980,7 +2007,6 @@
     kg.addEventListener("input", () => { const v = numLoc(kg.value); lb.value = kg.value === "" ? "" : (v * 2.2046226).toFixed(2); });
     lb.addEventListener("input", () => { const v = numLoc(lb.value); kg.value = lb.value === "" ? "" : (v / 2.2046226).toFixed(2); });
     $("#closeConv").addEventListener("click", closeModal);
-    $("#convBack").addEventListener("click", () => { closeModal(); openTools(); });
     kg.focus();
   }
   (function () { const b = document.getElementById("convBtn"); if (b) b.addEventListener("click", openConverter); })();
@@ -2006,26 +2032,31 @@
     root.querySelector("#toolConv").addEventListener("click", () => { dismiss(); openConverter(); });
   }
 
+  let toolsMenuEl = null;
+  function closeToolsMenu() {
+    if (toolsMenuEl) toolsMenuEl.classList.remove("show");
+  }
+
   // Mobile: dropdown anchored to the top-bar button. On desktop the sidebar
   // already lists the tools, so the only caller there is a tool's "back"
   // button → fall back to a centered dialog.
   function showToolsMenu(btn) {
-    let menu = document.getElementById("toolsMenu");
-    if (!menu) {
-      menu = document.createElement("div");
-      menu.className = "tools-menu"; menu.id = "toolsMenu";
-      document.body.appendChild(menu);
+    if (!toolsMenuEl) {
+      toolsMenuEl = document.createElement("div");
+      toolsMenuEl.className = "tools-menu"; toolsMenuEl.id = "toolsMenu";
+      document.body.appendChild(toolsMenuEl);
       document.addEventListener("click", (e) => {
-        if (menu.classList.contains("show") && !menu.contains(e.target) && !btn.contains(e.target)) menu.classList.remove("show");
+        if (toolsMenuEl && toolsMenuEl.classList.contains("show") && !toolsMenuEl.contains(e.target) && !btn.contains(e.target)) toolsMenuEl.classList.remove("show");
       });
     }
-    menu.innerHTML = TOOL_ITEMS_HTML;
-    wireToolItems(menu, () => menu.classList.remove("show"));
-    menu.classList.add("show");
+    toolsMenuEl.innerHTML = TOOL_ITEMS_HTML;
+    wireToolItems(toolsMenuEl, closeToolsMenu);
+    toolsMenuEl.classList.add("show");
   }
 
   function openTools() {
     const btn = document.getElementById("toolsBtn");
+    closeActiveTools();
     // getClientRects() is truthy whenever the button is actually rendered
     // (mobile top bar). offsetParent can be null under a fixed top bar, which
     // wrongly fell back to the centered dialog.
@@ -2041,12 +2072,15 @@
     wireToolItems(document, closeModal);
   }
   global.__toolsBack = openTools;
+  window.addEventListener("resize", () => {
+    const btn = document.getElementById("toolsBtn");
+    if (toolsMenuEl && (!btn || !btn.getClientRects().length)) closeToolsMenu();
+  });
   (function () {
     const b = document.getElementById("toolsBtn");
     if (b) b.addEventListener("click", (e) => {
       e.stopPropagation();
-      const menu = document.getElementById("toolsMenu");
-      if (menu && menu.classList.contains("show")) menu.classList.remove("show");
+      if (toolsMenuEl && toolsMenuEl.classList.contains("show")) toolsMenuEl.classList.remove("show");
       else openTools();
     });
   })();

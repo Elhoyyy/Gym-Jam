@@ -154,10 +154,16 @@ h1, h2, h3, .brand-name, .display, .stat-value, .num { font-family: "Space Grote
    View header
    ============================================================ */
 .view-head { margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1.5px solid var(--border); }
-.view-head .eyebrow { color: var(--accent); font-size: 11.5px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase; }
-.view-head h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.8px; margin-top: 6px; color: var(--ink); }
+.view-head .eyebrow { color: var(--accent); font-size: 11.5px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase; display: inline-block; margin-bottom: 10px; }
+.view-head h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.8px; margin-top: 0; color: var(--ink); }
 .view-head .subtitle { color: var(--text-dim); margin-top: 6px; font-size: 14.5px; max-width: 60ch; }
 .view-head-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.draft-badge {
+  display: inline-flex; align-items: center; margin-left: 8px; vertical-align: middle;
+  padding: 3px 8px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent);
+  font-size: 10px; font-weight: 800; letter-spacing: 0.9px; text-transform: uppercase;
+}
 
 /* Streak chip in the "today" header (mobile only; desktop has the sidebar badge) */
 .today-streak { display: none; align-items: center; gap: 7px; margin-top: 12px; padding: 7px 13px; border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border)); border-radius: 20px; background: color-mix(in srgb, var(--accent) 8%, var(--surface)); font-size: 13px; color: var(--text-dim); width: fit-content; }
@@ -614,7 +620,7 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 
 .timer-panel {
   position: fixed; z-index: 260; left: 50%; bottom: 26px; transform: translate(-50%, 20px);
-  width: 300px; max-width: calc(100vw - 32px);
+  width: 336px; max-width: calc(100vw - 32px);
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow); padding: 18px;
   opacity: 0; pointer-events: none; transition: opacity 0.18s ease, transform 0.18s ease;
@@ -640,7 +646,7 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .timer-panel.mode-stopwatch .timer-presets { display: none; }
 .timer-panel.mode-stopwatch .ctl-rest { display: none; }
 .ctl-sw { display: none; }
-.timer-panel.mode-stopwatch .ctl-sw { display: inline-flex; }
+.timer-panel.mode-stopwatch .ctl-sw { display: grid; place-items: center; }
 /* Laps / tramos — only in stopwatch mode, hidden while minimized */
 .timer-laps { display: none; }
 .timer-panel.mode-stopwatch:not(.min) .timer-laps:not(:empty) {
@@ -659,10 +665,13 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .timer-ring-bg { stroke: var(--surface-3); }
 .timer-ring-fg { stroke: var(--accent); transition: stroke-dashoffset 0.2s linear; }
 .timer-time {
-  position: absolute; inset: 0; display: grid; place-items: center;
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   font-family: "Space Grotesk"; font-weight: 700; font-size: 38px; letter-spacing: -1px;
   color: var(--ink); font-variant-numeric: tabular-nums;
 }
+.timer-time .tt-main { display: inline-block; }
+.timer-time .timer-ms { display: inline-block; font-size: 0.42em; font-weight: 600; opacity: 0.7; margin-left: 1px; letter-spacing: -0.6px; }
+.timer-time .timer-laps-inline { display: none; }
 .timer-panel.is-done .timer-ring-fg { stroke: var(--pos); }
 .timer-panel.is-done .timer-time { color: var(--pos); animation: timerPulse 0.8s ease infinite; }
 @keyframes timerPulse { 50% { opacity: 0.35; } }
@@ -675,7 +684,7 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 }
 .timer-preset:hover { border-color: var(--accent); color: var(--accent); }
 
-.timer-controls { display: flex; align-items: center; justify-content: center; gap: 14px; }
+.timer-controls { display: flex; align-items: center; justify-content: center; gap: 12px; }
 .timer-controls .icon-btn {
   width: 44px; height: 44px; border-radius: 50%;
   border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim);
@@ -831,7 +840,7 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 }
 .account-menu.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
 .tools-menu {
-  position: fixed; z-index: 245; top: 60px; right: 12px; width: min(230px, calc(100% - 24px));
+  position: fixed; z-index: 245; top: 76px; right: 12px; width: min(230px, calc(100% - 24px));
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
   padding: 8px; display: flex; flex-direction: column; gap: 6px;
   opacity: 0; transform: translateY(-8px); pointer-events: none; transition: opacity 0.18s, transform 0.18s;
@@ -880,6 +889,8 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
   .main { padding: calc(60px + env(safe-area-inset-top)) 18px 96px; }
   .theme-toggle { display: none; }   /* moved into the top bar on mobile */
   .auth-theme { display: grid; }     /* ...but the login screen covers the top bar, so show it there */
+  .view-head { margin-top: 12px; margin-bottom: 34px; padding-bottom: 22px; }
+  .view-head .eyebrow { margin-bottom: 12px; }
   .view-head h1 { font-size: 25px; }
   .history-metrics { width: 100%; justify-content: flex-start; margin-left: 0; margin-top: 12px; }
   .history-top { flex-wrap: wrap; }
@@ -906,7 +917,7 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
   .history-metric { flex: 1; }
   .timer-panel { bottom: 24px; }
   .account-menu { top: 56px; }
-  .tools-menu { top: 56px; }
+  .tools-menu { top: 68px; }
   .meals-grid { grid-template-columns: 1fr; }
   .goals-grid { grid-template-columns: 1fr; }
   .topbar-actions { gap: 5px; }
