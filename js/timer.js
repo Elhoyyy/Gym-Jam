@@ -177,7 +177,7 @@
       </div>
       <div class="timer-controls">
         <button class="icon-btn ctl-rest" id="timerMinus" title="-15s">−15</button>
-        <button class="icon-btn ctl-sw" id="timerLap" title="Vuelta"><svg viewBox="0 0 24 24"><path d="M6 21V3m0 1.5c2.6-1.2 4.7 1 7.3 0s4.7-1 4.7-1v7.5s-2.1 1-4.7 1-4.7-1.2-7.3 0" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button class="icon-btn ctl-sw" id="timerLap" title="Vuelta"><svg viewBox="0 0 24 24"><path d="M7 20V4m0 3c2.4-1.1 4.4 1 6.8 0s3.2-.9 3.2-.9v6.6s-1.2.9-3.4.9-4.4-1.1-6.6 0" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <button class="timer-play" id="timerPlay" title="Iniciar"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7L8 5z" fill="currentColor"/></svg></button>
         <button class="icon-btn ctl-rest" id="timerPlus" title="+15s">+15</button>
         <button class="icon-btn" id="timerReset" title="Reiniciar"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 1 2.3 5.6M4 12V7m0 5h5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>

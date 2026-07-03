@@ -1980,7 +1980,7 @@
     kg.addEventListener("input", () => { const v = numLoc(kg.value); lb.value = kg.value === "" ? "" : (v * 2.2046226).toFixed(2); });
     lb.addEventListener("input", () => { const v = numLoc(lb.value); kg.value = lb.value === "" ? "" : (v / 2.2046226).toFixed(2); });
     $("#closeConv").addEventListener("click", closeModal);
-    $("#convBack").addEventListener("click", openTools);
+    $("#convBack").addEventListener("click", () => { closeModal(); openTools(); });
     kg.focus();
   }
   (function () { const b = document.getElementById("convBtn"); if (b) b.addEventListener("click", openConverter); })();
@@ -2026,7 +2026,10 @@
 
   function openTools() {
     const btn = document.getElementById("toolsBtn");
-    if (btn && btn.offsetParent !== null) { showToolsMenu(btn); return; }
+    // getClientRects() is truthy whenever the button is actually rendered
+    // (mobile top bar). offsetParent can be null under a fixed top bar, which
+    // wrongly fell back to the centered dialog.
+    if (btn && btn.getClientRects().length) { showToolsMenu(btn); return; }
     openModal(`
       <div class="modal-head">
         <div><h2>Herramientas</h2></div>
