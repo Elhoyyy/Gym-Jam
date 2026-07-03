@@ -16,6 +16,7 @@
   let remaining = 0, total = 0, endAt = 0;
   // stopwatch (count up)
   let swElapsedMs = 0, swStartTs = 0;
+  let laps = [];               // total elapsed ms captured at each "Vuelta"
 
   let panel = null;
   const R = 52, C = 2 * Math.PI * R;
@@ -45,15 +46,21 @@
     s = Math.max(0, Math.floor(s));
     return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
   }
-  function elapsedSec() { return Math.floor((swElapsedMs + (running && mode === "stopwatch" ? Date.now() - swStartTs : 0)) / 1000); }
+  function elapsedMs() { return swElapsedMs + (running && mode === "stopwatch" ? Date.now() - swStartTs : 0); }
+  function elapsedSec() { return Math.floor(elapsedMs() / 1000); }
+  function fmtMs(ms) {
+    const t = Math.max(0, Math.floor(ms)), s = Math.floor(t / 1000), cs = Math.floor((t % 1000) / 10);
+    return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") + "." + String(cs).padStart(2, "0");
+  }
 
   function render() {
     if (!panel) return;
     let secs, frac, done = false;
     if (mode === "rest") { secs = remaining; frac = total > 0 ? remaining / total : 0; done = total > 0 && remaining <= 0; }
-    else { secs = elapsedSec(); frac = (secs % 60) / 60; }
+    else { secs = elapsedSec(); frac = (elapsedMs() % 60000) / 60000; }
     panel.querySelector(".timer-title").textContent = mode === "stopwatch" ? "Cronómetro" : "Temporizador";
-    panel.querySelector(".timer-time").textContent = mmss(secs);
+    panel.querySelector(".tt-main").textContent = mmss(secs);
+    panel.querySelector(".timer-ms").textContent = mode === "stopwatch" ? "." + String(Math.floor((elapsedMs() % 1000) / 10)).padStart(2, "0") : "";
     panel.querySelector(".timer-ring-fg").style.strokeDashoffset = (C * (1 - frac)).toFixed(1);
     panel.classList.toggle("is-done", done);
     panel.classList.toggle("mode-stopwatch", mode === "stopwatch");
@@ -65,7 +72,7 @@
     play.title = running ? "Pausar" : (mode === "stopwatch" ? "Iniciar" : "Reanudar");
   }
 
-  function startTick() { clearInterval(tickId); tickId = setInterval(tick, 200); }
+  function startTick() { clearInterval(tickId); tickId = setInterval(tick, mode === "stopwatch" ? 40 : 200); }
   function stopTick() { clearInterval(tickId); tickId = null; }
   function tick() {
     if (mode === "rest") {
@@ -100,8 +107,25 @@
   function reset() {
     running = false; stopTick();
     if (mode === "rest") { remaining = 0; total = 0; }
-    else { swElapsedMs = 0; swStartTs = 0; }
+    else { swElapsedMs = 0; swStartTs = 0; laps = []; renderLaps(); }
     render();
+  }
+  function lap() {
+    if (mode !== "stopwatch") return;
+    const t = elapsedMs();
+    if (t <= 0) return;
+    laps.push(t);
+    renderLaps();
+  }
+  function renderLaps() {
+    const box = panel && panel.querySelector(".timer-laps");
+    if (!box) return;
+    let html = "";
+    for (let i = laps.length - 1; i >= 0; i--) {
+      const split = laps[i] - (i > 0 ? laps[i - 1] : 0);
+      html += `<div class="lap-row"><span class="lap-n">Vuelta ${i + 1}</span><span class="lap-split">${fmtMs(split)}</span><span class="lap-total">${fmtMs(laps[i])}</span></div>`;
+    }
+    box.innerHTML = html;
   }
 
   function open(m, onBack) {
@@ -130,17 +154,19 @@
           <circle class="timer-ring-bg" cx="60" cy="60" r="${R}" fill="none" stroke-width="8"/>
           <circle class="timer-ring-fg" cx="60" cy="60" r="${R}" fill="none" stroke-width="8" stroke-linecap="round" transform="rotate(-90 60 60)" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${C.toFixed(1)}"/>
         </svg>
-        <div class="timer-time">0:00</div>
+        <div class="timer-time"><span class="tt-main">0:00</span><span class="timer-ms"></span></div>
       </div>
       <div class="timer-presets">
         ${PRESETS.map((s) => `<button class="timer-preset" data-sec="${s}">${mmss(s)}</button>`).join("")}
       </div>
       <div class="timer-controls">
         <button class="icon-btn ctl-rest" id="timerMinus" title="-15s">−15</button>
+        <button class="icon-btn ctl-sw" id="timerLap" title="Vuelta"><svg viewBox="0 0 24 24"><path d="M6 21V3m0 1.5c2.6-1.2 4.7 1 7.3 0s4.7-1 4.7-1v7.5s-2.1 1-4.7 1-4.7-1.2-7.3 0" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <button class="timer-play" id="timerPlay" title="Iniciar"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7L8 5z" fill="currentColor"/></svg></button>
         <button class="icon-btn ctl-rest" id="timerPlus" title="+15s">+15</button>
         <button class="icon-btn" id="timerReset" title="Reiniciar"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 1 2.3 5.6M4 12V7m0 5h5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-      </div>`;
+      </div>
+      <div class="timer-laps"></div>`;
     document.body.appendChild(panel);
     panel.querySelector("#timerClose").addEventListener("click", close);
     panel.querySelector("#timerMin").addEventListener("click", (e) => { e.stopPropagation(); panel.classList.add("min"); });
@@ -148,6 +174,7 @@
     panel.querySelector("#timerBack").addEventListener("click", () => { close(); if (backCb) backCb(); });
     panel.querySelectorAll(".timer-preset").forEach((b) => b.addEventListener("click", () => startWith(+b.dataset.sec)));
     panel.querySelector("#timerPlay").addEventListener("click", togglePlay);
+    panel.querySelector("#timerLap").addEventListener("click", (e) => { e.stopPropagation(); lap(); });
     panel.querySelector("#timerMinus").addEventListener("click", () => adjust(-15));
     panel.querySelector("#timerPlus").addEventListener("click", () => adjust(15));
     panel.querySelector("#timerReset").addEventListener("click", reset);

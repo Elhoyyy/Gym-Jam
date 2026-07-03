@@ -235,7 +235,7 @@
   let exIndex = null;   // id -> exercise (lazy cache for O(1) lookups)
   function invalidateEx() { exIndex = null; }
 
-  function addExercise(name, group) {
+  function addExercise(name, group, unilateral) {
     name = (name || "").trim();
     if (!name) return null;
     const exists = state.exercises.find(
@@ -243,10 +243,18 @@
     );
     if (exists) return exists;
     const ex = { id: uid(), name, group, custom: true };
+    if (unilateral) ex.unilateral = true;
     state.exercises.push(ex);
     invalidateEx();
     save();
     return ex;
+  }
+  // Toggle the "unilateral" flag on an existing exercise (cosmetic Izq/Dcha labels).
+  function setUnilateral(id, val) {
+    const ex = exerciseById(id);
+    if (!ex) return;
+    if (val) ex.unilateral = true; else delete ex.unilateral;
+    save();
   }
 
   function deleteExercise(id) {
@@ -399,7 +407,7 @@
   global.DB = {
     GROUPS, STORAGE_KEY,
     load, save, get, uid,
-    addExercise, deleteExercise, exerciseById,
+    addExercise, deleteExercise, exerciseById, setUnilateral,
     saveWorkout, deleteWorkout, workoutById, sortedWorkouts,
     saveTemplate, deleteTemplate, templateById, renameTemplate, sortedTemplates,
     setVolume, workoutVolume, workoutSetCount, estimate1RM,

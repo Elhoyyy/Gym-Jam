@@ -318,6 +318,10 @@
   /* --- Cardio-aware set helpers ----------------------------- */
   function isCardio(group) { return group === "cardio"; }
   function newSetFor(group) { return isCardio(group) ? { min: "", km: "" } : { weight: "", reps: "" }; }
+  // Unilateral (per-side) exercises: an explicit flag, or an obvious name match.
+  const UNILAT_RE = /unilat|a una mano|a un brazo|a una pierna|b[úu]lgar|split squat|pistol/i;
+  function nameLooksUnilateral(name) { return UNILAT_RE.test(name || ""); }
+  function isUnilateral(ex) { return !!ex && ex.group !== "cardio" && (ex.unilateral === true || nameLooksUnilateral(ex.name)); }
 
   // Fields shown per exercise type: [{key, placeholder, step}]
   function setFields(group) {
@@ -343,7 +347,7 @@
       if (s.km) a.push(fmtNum(s.km) + " km");
       return a.join(" · ") || "—";
     }
-    return fmtNum(s.weight) + "×" + s.reps;
+    return (s.side ? s.side + " " : "") + fmtNum(s.weight) + "×" + s.reps;
   }
   // Per-set summary cell (right of the inputs).
   function setSummary(group, s) {
@@ -380,6 +384,7 @@
       if (!ex) return "";
       const g = G[ex.group];
       const cardio = isCardio(ex.group);
+      const uni = isUnilateral(ex);
       const fields = setFields(ex.group);
       const [labA, labB] = setHeadLabels(ex.group);
       const last = lastPerformance(en.exerciseId, draft.id);
@@ -392,6 +397,7 @@
         const isPR = !cardio && s.weight && s.reps && isPersonalRecord(en.exerciseId, s.weight, s.reps);
         return `<div class="set-row" data-ei="${ei}" data-si="${si}">
           <div class="set-idx">${si + 1}</div>
+          ${uni ? `<button class="side-toggle${s.side ? " is-set" : ""}" data-action="side" title="Lado (Izq/Dcha)">${s.side || "·"}</button>` : ""}
           <input class="set-input" type="number" inputmode="decimal" min="0" step="${fields[0].step}" placeholder="${fields[0].ph}" value="${s[fields[0].key] ?? ""}" data-field="${fields[0].key}">
           <input class="set-input" type="number" inputmode="decimal" min="0" step="${fields[1].step}" placeholder="${fields[1].ph}" value="${s[fields[1].key] ?? ""}" data-field="${fields[1].key}">
           <div class="set-vol">${setSummary(ex.group, s)} ${isPR ? '<span class="pr-tag">PR</span>' : ""}</div>
@@ -399,7 +405,7 @@
         </div>`;
       }).join("");
 
-      return `<div class="ex-block" data-ei="${ei}">
+      return `<div class="ex-block${uni ? " uni" : ""}" data-ei="${ei}">
         <div class="ex-head">
           <span class="ex-dot" style="background:${g.color}"></span>
           <div>
@@ -415,7 +421,7 @@
         </div>
         ${lastHtml}
         <div class="sets-table">
-          <div class="set-row set-head"><span></span><span>${labA}</span><span>${labB}</span><span></span><span></span></div>
+          <div class="set-row set-head"><span></span>${uni ? "<span>Lado</span>" : ""}<span>${labA}</span><span>${labB}</span><span></span><span></span></div>
           ${setsHtml}
           <button class="add-set-btn" data-action="add-set">+ Añadir serie</button>
           ${cardio ? '<div class="set-hint">La distancia es opcional — registra el tiempo y, si quieres, completa los km al terminar.</div>' : ""}
@@ -504,6 +510,15 @@
       const last = sets[sets.length - 1];
       sets.push(last ? { ...last } : newSetFor(group));
       refreshEntries();
+    } else if (action === "side") {
+      const row = btn.closest(".set-row");
+      const ei = +row.dataset.ei, si = +row.dataset.si;
+      const cur = draft.entries[ei].sets[si].side || "";
+      const next = cur === "" ? "I" : cur === "I" ? "D" : "";
+      if (next) draft.entries[ei].sets[si].side = next; else delete draft.entries[ei].sets[si].side;
+      btn.textContent = next || "·";
+      btn.classList.toggle("is-set", !!next);
+      saveDraft();
     } else if (action === "del-set") {
       const row = btn.closest(".set-row");
       const ei = +row.dataset.ei, si = +row.dataset.si;
@@ -1180,8 +1195,10 @@
     if (cardioOnly) {
       const cc = workoutCardio(w);
       metricsHtml = `<div class="history-metric"><b>${fmtDuration(cc.min)}</b><span>tiempo</span></div>` +
-        (cc.km > 0 ? `<div class="history-metric"><b>${fmtNum(Math.round(cc.km * 10) / 10)}</b><span>km</span></div>`
-                   : `<div class="history-metric"><b>${sets}</b><span>series</span></div>`);
+        (cc.km > 0
+          ? `<div class="history-metric"><b>${fmtNum(Math.round(cc.km * 10) / 10)}</b><span>km</span></div>` +
+            `<div class="history-metric"><b>${fmtPace(cc.min / cc.km)}</b><span>ritmo /km</span></div>`
+          : `<div class="history-metric"><b>${sets}</b><span>series</span></div>`);
     } else {
       metricsHtml = `<div class="history-metric"><b>${fmtNum(vol)}</b><span>kg volumen</span></div>
           <div class="history-metric"><b>${sets}</b><span>series</span></div>`;
@@ -1198,11 +1215,17 @@
       const g = G[ex.group];
       const pills = en.sets.map((s) => isCardio(ex.group)
         ? `<span class="set-pill">${s.min ? `<b>${fmtNum(s.min)}</b> min` : ""}${s.min && s.km ? " · " : ""}${s.km ? `<b>${fmtNum(s.km)}</b> km` : ""}</span>`
-        : `<span class="set-pill"><b>${fmtNum(s.weight)}</b>kg × <b>${s.reps}</b></span>`
+        : `<span class="set-pill">${s.side ? `<span class="side-badge">${s.side}</span> ` : ""}<b>${fmtNum(s.weight)}</b>kg × <b>${s.reps}</b></span>`
       ).join("");
+      let pacePill = "";
+      if (isCardio(ex.group)) {
+        let km = 0, min = 0;
+        en.sets.forEach((s) => { km += Number(s.km) || 0; min += Number(s.min) || 0; });
+        if (km > 0) pacePill = `<span class="set-pill pace-pill"><b>${fmtPace(min / km)}</b> /km</span>`;
+      }
       return `<div class="history-ex">
         <div class="history-ex-name"><span class="ex-dot" style="background:${g.color}"></span>${escapeHtml(ex.name)}</div>
-        <div class="history-sets">${pills}</div>
+        <div class="history-sets">${pills}${pacePill}</div>
       </div>`;
     }).join("");
 
@@ -1779,7 +1802,7 @@
       const ex = DB.exerciseById(b.dataset.delEx);
       DB.deleteExercise(b.dataset.delEx);
       renderExercises();
-      if (ex) toastUndo(`«${ex.name}» eliminado`, () => { DB.addExercise(ex.name, ex.group); renderExercises(); });
+      if (ex) toastUndo(`«${ex.name}» eliminado`, () => { DB.addExercise(ex.name, ex.group, ex.unilateral); renderExercises(); });
     }));
     $$("[data-open-ex]").forEach((c) => c.addEventListener("click", () => openExerciseDetail(c.dataset.openEx)));
     const searchInput = $("#libSearch");
@@ -1870,6 +1893,7 @@
         <div class="eds-line">${statLine}</div>
         ${lastLine ? `<div class="eds-sub">${lastLine}</div>` : ""}
       </div>
+      ${ex.group !== "cardio" ? `<label class="check-row"><input type="checkbox" id="uniDetail" ${isUnilateral(ex) ? "checked" : ""}><span>Unilateral <small>— muestra Izq/Dcha por serie</small></span></label>` : ""}
       <div class="modal-actions">
         ${ex.custom ? `<button class="btn btn-danger" id="delDetail">Eliminar</button>` : ""}
         <button class="btn btn-primary" id="startFromDetail">Usar en el entreno</button>
@@ -1877,6 +1901,11 @@
     `);
 
     $("#closeDetail").addEventListener("click", closeModal);
+    const uniDetail = $("#uniDetail");
+    if (uniDetail) uniDetail.addEventListener("change", () => {
+      DB.setUnilateral(id, uniDetail.checked);
+      if (currentView === "today" && draft && draft.entries.some((en) => en.exerciseId === id)) refreshEntries();
+    });
     $("#startFromDetail").addEventListener("click", () => {
       closeModal();
       if (!draft) draft = newDraft();
@@ -1899,12 +1928,20 @@
       </div>
       <div class="modal-field"><label>Nombre del ejercicio</label><input class="input" id="exName" placeholder="Ej: Press inclinado en multipower" value="${escapeHtml(defaultName || "")}" autocomplete="off"></div>
       <div class="modal-field"><label>Grupo muscular</label><select class="select" id="exGroup">${groupOpts}</select></div>
+      <label class="check-row" id="uniRow"><input type="checkbox" id="exUni"><span>Unilateral <small>— registra cada lado (Izq/Dcha) por separado</small></span></label>
       <div class="modal-actions">
         <button class="btn btn-ghost" id="cancelCreate">Cancelar</button>
         <button class="btn btn-primary" id="saveCreate">Crear ejercicio</button>
       </div>
     `);
     const nameInput = $("#exName");
+    const uniInput = $("#exUni");
+    let uniTouched = false;
+    uniInput.addEventListener("change", () => { uniTouched = true; });
+    // Auto-suggest the flag from the name until the user sets it manually.
+    const suggestUni = () => { if (!uniTouched) uniInput.checked = nameLooksUnilateral(nameInput.value); };
+    nameInput.addEventListener("input", suggestUni);
+    suggestUni();
     nameInput.focus();
     $("#closeCreate").addEventListener("click", closeModal);
     $("#cancelCreate").addEventListener("click", closeModal);
@@ -1912,7 +1949,7 @@
       const name = nameInput.value.trim();
       const group = $("#exGroup").value;
       if (!name) { toast("Escribe un nombre", "error"); return; }
-      const ex = DB.addExercise(name, group);
+      const ex = DB.addExercise(name, group, uniInput.checked);
       closeModal();
       toast("Ejercicio creado ✓", "success");
       if (currentView === "exercises") renderExercises();
@@ -1949,34 +1986,67 @@
   (function () { const b = document.getElementById("convBtn"); if (b) b.addEventListener("click", openConverter); })();
 
   /* ---------- Tools menu ---------- */
+  const TOOL_ITEMS_HTML = `
+    <button class="tool-item" id="toolTimer">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M7 3h10M7 21h10M8 3c0 4.5 4 5.5 4 9s-4 4.5-4 9M16 3c0 4.5-4 5.5-4 9s4 4.5 4 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Temporizador
+    </button>
+    <button class="tool-item" id="toolStopwatch">
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="13" r="8" stroke="currentColor" stroke-width="2"/><path d="M12 9v4l2.5 2M9 2h6M12 5V2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Cronómetro
+    </button>
+    <button class="tool-item" id="toolConv">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M7 4H3m0 0l3-3M3 4l3 3M17 20h4m0 0l-3 3m3-3l-3-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 4h9a4 4 0 013 7M17 20H8a4 4 0 01-3-7" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
+      Conversor kg ⇄ lb
+    </button>`;
+
+  function wireToolItems(root, dismiss) {
+    root.querySelector("#toolTimer").addEventListener("click", () => { dismiss(); global.RestTimer.open("rest", openTools); });
+    root.querySelector("#toolStopwatch").addEventListener("click", () => { dismiss(); global.RestTimer.open("stopwatch", openTools); });
+    root.querySelector("#toolConv").addEventListener("click", () => { dismiss(); openConverter(); });
+  }
+
+  // Mobile: dropdown anchored to the top-bar button. On desktop the sidebar
+  // already lists the tools, so the only caller there is a tool's "back"
+  // button → fall back to a centered dialog.
+  function showToolsMenu(btn) {
+    let menu = document.getElementById("toolsMenu");
+    if (!menu) {
+      menu = document.createElement("div");
+      menu.className = "tools-menu"; menu.id = "toolsMenu";
+      document.body.appendChild(menu);
+      document.addEventListener("click", (e) => {
+        if (menu.classList.contains("show") && !menu.contains(e.target) && !btn.contains(e.target)) menu.classList.remove("show");
+      });
+    }
+    menu.innerHTML = TOOL_ITEMS_HTML;
+    wireToolItems(menu, () => menu.classList.remove("show"));
+    menu.classList.add("show");
+  }
+
   function openTools() {
+    const btn = document.getElementById("toolsBtn");
+    if (btn && btn.offsetParent !== null) { showToolsMenu(btn); return; }
     openModal(`
       <div class="modal-head">
         <div><h2>Herramientas</h2></div>
         <button class="icon-btn" id="closeTools"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       </div>
-      <div class="tools-list">
-        <button class="tool-item" id="toolTimer">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M7 3h10M7 21h10M8 3c0 4.5 4 5.5 4 9s-4 4.5-4 9M16 3c0 4.5-4 5.5-4 9s4 4.5 4 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Temporizador
-        </button>
-        <button class="tool-item" id="toolStopwatch">
-          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="13" r="8" stroke="currentColor" stroke-width="2"/><path d="M12 9v4l2.5 2M9 2h6M12 5V2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Cronómetro
-        </button>
-        <button class="tool-item" id="toolConv">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M7 4H3m0 0l3-3M3 4l3 3M17 20h4m0 0l-3 3m3-3l-3-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 4h9a4 4 0 013 7M17 20H8a4 4 0 01-3-7" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
-          Conversor kg ⇄ lb
-        </button>
-      </div>
+      <div class="tools-list">${TOOL_ITEMS_HTML}</div>
     `);
     $("#closeTools").addEventListener("click", closeModal);
-    $("#toolTimer").addEventListener("click", () => { closeModal(); global.RestTimer.open("rest", openTools); });
-    $("#toolStopwatch").addEventListener("click", () => { closeModal(); global.RestTimer.open("stopwatch", openTools); });
-    $("#toolConv").addEventListener("click", openConverter);
+    wireToolItems(document, closeModal);
   }
   global.__toolsBack = openTools;
-  (function () { const b = document.getElementById("toolsBtn"); if (b) b.addEventListener("click", openTools); })();
+  (function () {
+    const b = document.getElementById("toolsBtn");
+    if (b) b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const menu = document.getElementById("toolsMenu");
+      if (menu && menu.classList.contains("show")) menu.classList.remove("show");
+      else openTools();
+    });
+  })();
 
   /* ============================================================
      NUTRITION (Alimentación)

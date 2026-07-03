@@ -327,6 +327,22 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .set-input { width: 100%; padding: 9px 11px; border-radius: 7px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--ink); font: inherit; font-size: 14.5px; text-align: center; font-variant-numeric: tabular-nums; }
 .set-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .set-vol { font-size: 12.5px; color: var(--text-dim); text-align: right; min-width: 64px; }
+/* Unilateral (per-side) exercises: extra "Lado" column + toggle */
+.ex-block.uni .set-row { grid-template-columns: 30px auto 1fr 1fr auto auto; }
+.side-toggle {
+  width: 30px; height: 30px; border-radius: 7px; border: 1px solid var(--border-strong);
+  background: var(--surface-2); color: var(--text-faint); font: inherit; font-weight: 700;
+  font-size: 13px; font-family: "Space Grotesk"; cursor: pointer; padding: 0; transition: all 0.13s;
+}
+.side-toggle:hover { border-color: var(--accent); }
+.side-toggle.is-set { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.side-badge {
+  display: inline-block; min-width: 14px; text-align: center; padding: 0 4px; border-radius: 4px; margin-right: 1px;
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-3)); color: var(--accent); font-weight: 700; font-size: 11px;
+}
+.check-row { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; padding: 6px 2px 2px; font-size: 14px; color: var(--ink); margin-bottom: 4px; }
+.check-row input { width: 18px; height: 18px; margin-top: 1px; accent-color: var(--accent); flex-shrink: 0; cursor: pointer; }
+.check-row small { color: var(--text-faint); font-weight: 400; }
 .pr-tag { font-size: 9.5px; font-weight: 800; color: #fff; background: var(--accent); padding: 2px 6px; border-radius: 4px; letter-spacing: 0.6px; vertical-align: middle; }
 .add-set-btn {
   margin: 8px 2px 2px; width: calc(100% - 4px); padding: 9px; border-radius: 7px;
@@ -429,6 +445,8 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .history-sets { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .set-pill { font-size: 12.5px; padding: 4px 10px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim); }
 .set-pill b { color: var(--ink); font-weight: 600; }
+.pace-pill { background: color-mix(in srgb, var(--accent) 12%, var(--surface-2)); border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); color: var(--accent); }
+.pace-pill b { color: var(--accent); }
 .history-actions { display: flex; gap: 8px; padding: 14px 20px 0; border-top: 1px solid var(--border); margin-top: 4px; }
 
 /* ============================================================
@@ -617,8 +635,24 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .timer-panel.min .timer-dial { width: 76px; height: 76px; margin: 0; }
 .timer-panel.min .timer-ring-bg { stroke: color-mix(in srgb, var(--accent) 22%, var(--surface-3)); }
 .timer-panel.min .timer-time { font-size: 15px; }
+.timer-ms { font-size: 0.5em; font-weight: 600; opacity: 0.6; margin-left: 1px; letter-spacing: -0.5px; }
+.timer-panel.min .timer-ms { display: none; }   /* the bubble shows only min:sec */
 .timer-panel.mode-stopwatch .timer-presets { display: none; }
 .timer-panel.mode-stopwatch .ctl-rest { display: none; }
+.ctl-sw { display: none; }
+.timer-panel.mode-stopwatch .ctl-sw { display: inline-flex; }
+/* Laps / tramos — only in stopwatch mode, hidden while minimized */
+.timer-laps { display: none; }
+.timer-panel.mode-stopwatch .timer-laps:not(:empty) {
+  display: block; max-height: 128px; overflow-y: auto; margin-top: 12px;
+  border-top: 1px solid var(--border); padding-top: 8px;
+}
+.timer-panel.min .timer-laps { display: none; }
+.lap-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 5px 2px; border-bottom: 1px solid var(--border); }
+.lap-row:last-child { border-bottom: none; }
+.lap-n { font-size: 12.5px; color: var(--text-dim); font-weight: 600; }
+.lap-split { font-family: "Space Grotesk"; font-weight: 700; font-size: 13.5px; color: var(--ink); font-variant-numeric: tabular-nums; margin-left: auto; }
+.lap-total { font-size: 11.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; min-width: 58px; text-align: right; }
 
 .timer-dial { position: relative; width: 168px; height: 168px; margin: 4px auto 12px; }
 .timer-dial svg { width: 100%; height: 100%; }
@@ -787,6 +821,14 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
   padding: 14px; opacity: 0; transform: translateY(-8px); pointer-events: none; transition: opacity 0.18s, transform 0.18s;
 }
 .account-menu.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.tools-menu {
+  position: fixed; z-index: 245; top: 60px; right: 12px; width: min(230px, calc(100% - 24px));
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 8px; display: flex; flex-direction: column; gap: 6px;
+  opacity: 0; transform: translateY(-8px); pointer-events: none; transition: opacity 0.18s, transform 0.18s;
+}
+.tools-menu.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.tools-menu .tool-item { padding: 12px 13px; font-size: 14px; }
 .account-menu .am-head { display: flex; align-items: center; gap: 11px; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
 .account-menu .am-email { font-size: 13.5px; font-weight: 600; color: var(--ink); word-break: break-all; }
 .account-menu .am-sync { font-size: 11.5px; margin-top: 2px; }
@@ -845,6 +887,7 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
   .mnav-item svg { width: 21px; height: 21px; }
   .mnav-item.is-active { color: var(--accent); }
   .set-row { grid-template-columns: 28px 1fr 1fr auto; }
+  .ex-block.uni .set-row { grid-template-columns: 28px auto 1fr 1fr auto; }
   .set-vol { display: none; }
   .summary-cell { min-width: 33%; }
   /* History action buttons wrap instead of overflowing to the right */
@@ -854,6 +897,7 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
   .history-metric { flex: 1; }
   .timer-panel { bottom: 24px; }
   .account-menu { top: 56px; }
+  .tools-menu { top: 56px; }
   .meals-grid { grid-template-columns: 1fr; }
   .goals-grid { grid-template-columns: 1fr; }
   .topbar-actions { gap: 5px; }
