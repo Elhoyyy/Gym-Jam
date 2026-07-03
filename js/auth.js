@@ -44,7 +44,7 @@
     syncTimer = setTimeout(pushNow, 800);
   }
   async function pushNow() {
-    if (mode !== "backend" || !token) return;
+    if (mode !== "backend") return;   // cookie authenticates even without a localStorage token
     try {
       const state = JSON.parse(DB.exportJSON());
       await api("/api/state", { method: "PUT", body: { state }, auth: true });

@@ -18,6 +18,7 @@
     gluteo:   { name: "Glúteo",    abbr: "GL", color: "#b0572f" },
     abdomen:  { name: "Abdomen",   abbr: "AB", color: "#6b53a3" },
     cardio:   { name: "Cardio",    abbr: "CA", color: "#a5324a" },
+    movilidad:{ name: "Movilidad", abbr: "MO", color: "#5b8a72" },
   };
 
   /* --- Default exercise library ----------------------------- */
@@ -110,6 +111,13 @@
     ["Comba", "cardio"], ["Sprints", "cardio"], ["Burpees", "cardio"],
     ["Caminar", "cardio"], ["Nadar", "cardio"], ["Senderismo", "cardio"],
     ["Patinar", "cardio"], ["Esquí", "cardio"],
+
+    // ---- Movilidad / estiramientos ----
+    ["Estiramiento de isquiotibiales", "movilidad"], ["Estiramiento de cuádriceps", "movilidad"],
+    ["Estiramiento de gemelos", "movilidad"], ["Estiramiento de glúteo", "movilidad"],
+    ["Estiramiento de pecho", "movilidad"], ["Estiramiento de espalda (gato)", "movilidad"],
+    ["Postura del niño", "movilidad"], ["Rodillas al pecho", "movilidad"],
+    ["Estiramiento de cuello", "movilidad"], ["Círculos de brazos", "movilidad"],
   ];
 
   /* --- ID helper -------------------------------------------- */

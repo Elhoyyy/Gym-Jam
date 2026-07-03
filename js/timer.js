@@ -122,6 +122,7 @@
       <div class="timer-head">
         <button class="icon-btn" id="timerBack" title="Herramientas"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <span class="timer-title">Temporizador</span>
+        <button class="icon-btn" id="timerMin" title="Minimizar"><svg viewBox="0 0 24 24"><path d="M6 12h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
         <button class="icon-btn" id="timerClose" title="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       </div>
       <div class="timer-dial">
@@ -142,6 +143,7 @@
       </div>`;
     document.body.appendChild(panel);
     panel.querySelector("#timerClose").addEventListener("click", close);
+    panel.querySelector("#timerMin").addEventListener("click", () => panel.classList.toggle("min"));
     panel.querySelector("#timerBack").addEventListener("click", () => { close(); if (backCb) backCb(); });
     panel.querySelectorAll(".timer-preset").forEach((b) => b.addEventListener("click", () => startWith(+b.dataset.sec)));
     panel.querySelector("#timerPlay").addEventListener("click", togglePlay);

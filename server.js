@@ -205,6 +205,18 @@ function sanitizeTemplate(t) {
   return { name, groups, entries };
 }
 
+// A share is either a single routine or a folder bundle of routines.
+function sanitizeShare(body) {
+  if (body && Array.isArray(body.templates)) {
+    const folder = String(body.folder || "").slice(0, 60).trim();
+    const templates = body.templates.map(sanitizeTemplate).filter(Boolean).slice(0, 40);
+    if (!templates.length) return null;
+    return { type: "folder", folder, templates };
+  }
+  const t = sanitizeTemplate(body && body.template);
+  return t ? { type: "routine", template: t } : null;
+}
+
 /* ---------- API ---------- */
 async function handleApi(req, res, url) {
   const path = url.pathname;
@@ -274,8 +286,7 @@ async function handleApi(req, res, url) {
   if (path === "/api/share" && req.method === "POST") {
     const user = authUser(req);
     if (!user) return sendJSON(res, 401, { error: "No autorizado" });
-    const { template } = await readJSON(req);
-    const clean = sanitizeTemplate(template);
+    const clean = sanitizeShare(await readJSON(req));
     if (!clean) return sendJSON(res, 400, { error: "Rutina no válida" });
     let code = shareCode();
     for (let i = 0; i < 5 && q.getShare.get(code); i++) code = shareCode();
@@ -283,16 +294,18 @@ async function handleApi(req, res, url) {
     return sendJSON(res, 201, { code });
   }
 
-  // Fetch a shared routine by code (public)
+  // Fetch a shared routine/folder by code (public)
   if (path.startsWith("/api/share/") && req.method === "GET") {
     const code = path.slice("/api/share/".length);
     const row = q.getShare.get(code);
     if (!row) return sendJSON(res, 404, { error: "Esa rutina no existe o ha caducado" });
     q.bumpShare.run(code);
-    let template = null;
-    try { template = JSON.parse(row.template); } catch { template = null; }
-    if (!template) return sendJSON(res, 404, { error: "Rutina no válida" });
-    return sendJSON(res, 200, { template, owner: row.owner || null });
+    let parsed = null;
+    try { parsed = JSON.parse(row.template); } catch { parsed = null; }
+    if (!parsed) return sendJSON(res, 404, { error: "Rutina no válida" });
+    // Legacy shares were stored as a bare template (no `type`).
+    const share = parsed.type ? parsed : { type: "routine", template: parsed };
+    return sendJSON(res, 200, { share, template: share.template, owner: row.owner || null });
   }
 
   // Food search proxy (Open Food Facts) — keeps it CORS-free and private.

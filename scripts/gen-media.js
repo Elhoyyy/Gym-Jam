@@ -93,6 +93,12 @@ const OV = {
   "Hip thrust en máquina": "Barbell Hip Thrust", "Abducción de cadera en máquina": "Thigh Abductor",
   "Abducción con banda elástica": "Thigh Abductor", "Zancadas caminando": "Barbell Walking Lunge",
   "Elevación de rodillas en paralelas": "Knee/Hip Raise On Parallel Bars",
+  // Movilidad / estiramientos
+  "Estiramiento de isquiotibiales": "Hamstring Stretch", "Estiramiento de cuádriceps": "All Fours Quad Stretch",
+  "Estiramiento de gemelos": "Calf Stretch Hands Against Wall", "Estiramiento de glúteo": "Ankle On The Knee",
+  "Estiramiento de pecho": "Behind Head Chest Stretch", "Estiramiento de espalda (gato)": "Cat Stretch",
+  "Postura del niño": "Child's Pose", "Rodillas al pecho": "Hug Knees To Chest",
+  "Estiramiento de cuello": "Chin To Chest Stretch", "Círculos de brazos": "Arm Circles",
 };
 
 // group-specific overrides (resolve name collisions across groups)

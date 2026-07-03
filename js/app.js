@@ -17,6 +17,8 @@
   let statsTab = "fuerza";  // "fuerza" | "cardio"
   let cardioExercise = null; // selected exercise id for cardio pace chart
   let libFilter = "all";
+  let libSearch = "";
+  const normText = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
   /* --- Utils ------------------------------------------------ */
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -45,6 +47,20 @@
   function newDraft() {
     return { date: todayISO(), groups: [], notes: "", entries: [] };
   }
+  const DRAFT_KEY = "gymandjam.draft";
+  function saveDraft() {
+    try {
+      if (draft && (draft.entries.length || draft.groups.length || draft.notes)) localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      else localStorage.removeItem(DRAFT_KEY);
+    } catch (_) {}
+  }
+  function loadDraft() {
+    try {
+      const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
+      if (d && Array.isArray(d.entries) && (d.entries.length || (d.groups && d.groups.length))) return d;
+    } catch (_) {}
+    return null;
+  }
 
   /* --- Toast ------------------------------------------------ */
   function toast(msg, type = "success") {
@@ -60,6 +76,23 @@
       el.style.transform = "translateY(10px)";
       setTimeout(() => el.remove(), 300);
     }, 2600);
+  }
+
+  // Toast with an "Undo" action (5 s window).
+  function toastUndo(msg, undoFn) {
+    const host = document.getElementById("toastHost");
+    const el = document.createElement("div");
+    el.className = "toast info";
+    el.innerHTML = `<span class="t-icon">↺</span><span>${escapeHtml(msg)}</span><button class="toast-undo">Deshacer</button>`;
+    host.appendChild(el);
+    let done = false;
+    const remove = () => { el.style.transition = "opacity .3s, transform .3s"; el.style.opacity = "0"; el.style.transform = "translateY(10px)"; setTimeout(() => el.remove(), 300); };
+    const timer = setTimeout(remove, 5000);
+    el.querySelector(".toast-undo").addEventListener("click", () => {
+      if (done) return; done = true; clearTimeout(timer);
+      try { undoFn(); } catch (_) {}
+      remove();
+    });
   }
 
   function escapeHtml(s) {
@@ -275,6 +308,7 @@
       </div>`;
 
     bindToday();
+    saveDraft();
   }
 
   function exercisesInGroup(key) {
@@ -454,6 +488,7 @@
     // Update exercise header total
     const block = row.closest(".ex-block");
     block.querySelector(".ex-vol b").textContent = entryTotal(group, draft.entries[ei]);
+    saveDraft();
   }
 
   function onEntryClick(e) {
@@ -495,6 +530,7 @@
     wrap.innerHTML = renderEntries();
     // update counters
     $(".count-pill").textContent = draft.entries.length;
+    saveDraft();
   }
 
   function openExercisePicker() {
@@ -587,6 +623,7 @@
     DB.saveWorkout(draft);
     toast(draft.id ? "Entreno actualizado" : "¡Entreno guardado! 💪", "success");
     draft = newDraft();
+    saveDraft();
     setView("history");
   }
 
@@ -824,6 +861,7 @@
     if (impBtn) impBtn.addEventListener("click", () => openImportRoutine(""));
     $$("[data-use-tpl]").forEach((b) => b.addEventListener("click", () => useTemplate(b.dataset.useTpl)));
     $$("[data-share-tpl]").forEach((b) => b.addEventListener("click", () => shareTemplate(b.dataset.shareTpl)));
+    $$("[data-share-folder]").forEach((b) => b.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); shareFolder(b.dataset.shareFolder); }));
     $$("[data-rename-tpl]").forEach((b) => b.addEventListener("click", () => promptRenameTemplate(b.dataset.renameTpl)));
     $$("[data-del-tpl]").forEach((b) => b.addEventListener("click", () => confirmDeleteTemplate(b.dataset.delTpl)));
   }
@@ -838,7 +876,7 @@
     if (loose.length) html += `<div class="tpl-grid">${loose.map(templateCard).join("")}</div>`;
     folders.forEach((f) => {
       html += `<details class="folder" open>
-        <summary class="folder-head">${chevron}<span class="folder-name">${escapeHtml(f)}</span><span class="count-pill">${byFolder[f].length}</span></summary>
+        <summary class="folder-head">${chevron}<span class="folder-name">${escapeHtml(f)}</span><span class="count-pill">${byFolder[f].length}</span>${isBackend() ? `<button class="icon-btn" data-share-folder="${escapeHtml(f)}" title="Compartir carpeta" style="margin-left:auto"><svg viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4M6 12v7a2 2 0 002 2h8a2 2 0 002-2v-7" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ""}</summary>
         <div class="tpl-grid" style="margin-top:12px">${byFolder[f].map(templateCard).join("")}</div>
       </details>`;
     });
@@ -872,11 +910,22 @@
     }
   }
 
-  function shareLinkModal(name, code) {
+  async function shareFolder(folder) {
+    if (!isBackend()) { toast("Necesitas una cuenta para compartir", "info"); return; }
+    const templates = DB.sortedTemplates().filter((t) => t.folder === folder);
+    if (!templates.length) return;
+    try {
+      const data = await global.Auth.api("/api/share", { method: "POST", body: { folder, templates: templates.map(templateSharePayload) }, auth: true });
+      shareLinkModal(folder, data.code, templates.length);
+    } catch (err) { toast(err.message || "No se pudo compartir", "error"); }
+  }
+
+  function shareLinkModal(name, code, folderCount) {
+    const isFolder = folderCount > 0;
     const link = location.origin + "/?rutina=" + code;
     openModal(`
       <div class="modal-head">
-        <div><h2>Compartir rutina</h2><p>Cualquiera con este enlace podrá guardar «${escapeHtml(name)}» en su perfil.</p></div>
+        <div><h2>${isFolder ? "Compartir carpeta" : "Compartir rutina"}</h2><p>Cualquiera con este enlace podrá guardar ${isFolder ? `la carpeta «${escapeHtml(name)}» (${folderCount} rutinas)` : `«${escapeHtml(name)}»`} en su perfil.</p></div>
         <button class="icon-btn" id="closeShare"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       </div>
       <div class="share-box">
@@ -929,10 +978,36 @@
   async function fetchShared(code) {
     try {
       const data = await global.Auth.api("/api/share/" + encodeURIComponent(code));
-      confirmImportShared(data.template);
+      const share = data.share || (data.template ? { type: "routine", template: data.template } : null);
+      if (!share) { toast("Rutina no válida", "error"); return; }
+      if (share.type === "folder") confirmImportFolder(share);
+      else confirmImportShared(share.template);
     } catch (err) {
       toast(err.message || "No se encontró la rutina", "error");
     }
+  }
+
+  function confirmImportFolder(share) {
+    const templates = (share.templates || []).filter((t) => t && Array.isArray(t.entries) && t.entries.length);
+    if (!templates.length) { toast("Carpeta vacía", "error"); return; }
+    const folder = share.folder || "Compartida";
+    const list = templates.map((t) => `<li><span class="ex-dot" style="background:var(--accent)"></span>${escapeHtml(t.name)} <em>${t.entries.length} ej.</em></li>`).join("");
+    openModal(`
+      <div class="modal-head">
+        <div><h2>Carpeta «${escapeHtml(folder)}»</h2><p>Se añadirán ${templates.length} rutinas a tu carpeta.</p></div>
+        <button class="icon-btn" id="closeCF"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <ul class="tpl-ex" style="border-top:none;padding-top:0;max-height:46vh;overflow:auto">${list}</ul>
+      <div class="modal-actions"><button class="btn btn-ghost" id="cancelCF">Cancelar</button><button class="btn btn-primary" id="doImportF">Añadir ${templates.length} rutinas</button></div>
+    `);
+    $("#closeCF").addEventListener("click", closeModal);
+    $("#cancelCF").addEventListener("click", closeModal);
+    $("#doImportF").addEventListener("click", () => {
+      templates.forEach((t) => importSharedTemplate(t, folder));
+      closeModal();
+      toast(`${templates.length} rutinas añadidas a «${folder}»`, "success");
+      setView("templates");
+    });
   }
 
   function confirmImportShared(share) {
@@ -963,7 +1038,7 @@
     });
   }
 
-  function importSharedTemplate(share) {
+  function importSharedTemplate(share, folder) {
     const entries = (share.entries || []).map((e) => {
       const group = G[e.group] ? e.group : "pecho";
       let ex = DB.get().exercises.find((x) => x.name === e.name && x.group === group);
@@ -972,6 +1047,7 @@
     }).filter(Boolean);
     return DB.saveTemplate({
       name: (share.name || "Rutina compartida").slice(0, 80),
+      folder: folder || undefined,
       groups: (share.groups || []).filter((k) => G[k]),
       entries,
     });
@@ -1670,6 +1746,10 @@
             </button>
           </div>
         </div>
+        <div class="picker-search" style="margin-bottom:14px">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input class="input" id="libSearch" placeholder="Buscar ejercicio…" value="${escapeHtml(libSearch)}" autocomplete="off">
+        </div>
         <div class="lib-filters">${filters}</div>
         <div class="lib-grid">
           ${filtered.map((e) => {
@@ -1678,7 +1758,7 @@
             const icon = imgs.length
               ? `<img class="lib-thumb" src="${imgs[0]}" loading="lazy" alt="" onerror="this.remove()">`
               : g.abbr;
-            return `<div class="card lib-card" data-open-ex="${e.id}">
+            return `<div class="card lib-card" data-open-ex="${e.id}" data-search="${escapeHtml(normText(e.name))}">
               <div class="lib-icon" style="background:${g.color}1a;color:${g.color}">${icon}</div>
               <div style="min-width:0">
                 <div class="lib-name">${escapeHtml(e.name)}</div>
@@ -1688,6 +1768,7 @@
                 : `<span class="lib-badge">BASE</span>`}
             </div>`;
           }).join("") || `<div class="empty-hint" style="grid-column:1/-1">No hay ejercicios en este grupo.</div>`}
+          <div class="empty-hint" id="libEmpty" hidden style="grid-column:1/-1">Sin resultados. Prueba otra palabra o crea el ejercicio.</div>
         </div>
       </div>`;
 
@@ -1695,11 +1776,23 @@
     $$("[data-filter]").forEach((b) => b.addEventListener("click", () => { libFilter = b.dataset.filter; renderExercises(); }));
     $$("[data-del-ex]").forEach((b) => b.addEventListener("click", (e) => {
       e.stopPropagation();
+      const ex = DB.exerciseById(b.dataset.delEx);
       DB.deleteExercise(b.dataset.delEx);
-      toast("Ejercicio eliminado", "info");
       renderExercises();
+      if (ex) toastUndo(`«${ex.name}» eliminado`, () => { DB.addExercise(ex.name, ex.group); renderExercises(); });
     }));
     $$("[data-open-ex]").forEach((c) => c.addEventListener("click", () => openExerciseDetail(c.dataset.openEx)));
+    const searchInput = $("#libSearch");
+    const applyLibSearch = () => {
+      const q = normText(libSearch);
+      let shown = 0;
+      $$(".lib-card").forEach((c) => { const ok = !q || (c.dataset.search || "").includes(q); c.style.display = ok ? "" : "none"; if (ok) shown++; });
+      const emp = $("#libEmpty"); if (emp) emp.hidden = !(q && shown === 0);
+    };
+    if (searchInput) {
+      searchInput.addEventListener("input", () => { libSearch = searchInput.value; applyLibSearch(); });
+      applyLibSearch();
+    }
   }
 
   // Resolve media URLs for an exercise: explicit URL wins, else the bundled dataset map.
@@ -2038,9 +2131,16 @@
     $$("[data-add-food]").forEach((b) => b.addEventListener("click", () => openFoodPicker(b.dataset.addFood)));
     $$("[data-del-entry]").forEach((b) => b.addEventListener("click", () => {
       const [meal, idx] = b.dataset.delEntry.split(":");
-      ensureDay(foodDate)[meal].splice(+idx, 1);
+      const day = ensureDay(foodDate); const i = +idx;
+      const removed = day[meal][i];
+      const date = foodDate;
+      day[meal].splice(i, 1);
       DB.save();
       renderFoodDiary();
+      if (removed) toastUndo(`«${removed.name}» eliminado`, () => {
+        const d = ensureDay(date); d[meal].splice(i, 0, removed); DB.save();
+        if (foodDate === date && currentView === "food-diary") renderFoodDiary();
+      });
     }));
   }
 
@@ -2070,13 +2170,13 @@
         const q = s.value.trim();
         clearTimeout(foodSearchTimer);
         if (q.length < 2) { $("#fpList").innerHTML = foodResultList(customFoods, "Mis alimentos"); bindFoodResults(meal); return; }
-        $("#fpList").innerHTML = `<div class="fe-empty" style="padding:20px">Buscando…</div>`;
+        $("#fpList").innerHTML = `<div class="loading-row"><span class="spinner"></span> Buscando alimentos…</div>`;
         foodSearchTimer = setTimeout(async () => {
           try {
             const data = await global.Auth.api("/api/food/search?q=" + encodeURIComponent(q), { auth: true });
             $("#fpList").innerHTML = foodResultList(data.items || [], "Resultados");
             bindFoodResults(meal);
-          } catch (err) { $("#fpList").innerHTML = `<div class="fe-empty" style="padding:20px">${escapeHtml(err.message || "Error al buscar")}</div>`; }
+          } catch (err) { $("#fpList").innerHTML = `<div class="loading-row">${escapeHtml(err.message || "No se pudo buscar. Revisa la conexión.")}</div>`; }
         }, 350);
       });
     }
@@ -2217,14 +2317,14 @@
       if (!hasNative && window.ZXing) {
         try {
           zx = new window.ZXing.BrowserMultiFormatReader();
-          zx.decodeFromConstraints({ video: { facingMode: { ideal: "environment" } } }, video, (result) => {
+          zx.decodeFromConstraints({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } } }, video, (result) => {
             if (result) lookup(result.getText ? result.getText() : result.text);
           });
         } catch (e) { toast("No se pudo abrir la cámara", "error"); }
         return;
       }
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } } });
         video.srcObject = stream; await video.play();
         detector = new window.BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a", "upc_e"] });
         const tick = async () => {
@@ -2414,7 +2514,7 @@
      ============================================================ */
   function boot() {
     DB.load();
-    draft = newDraft();
+    draft = loadDraft() || newDraft();
     // Re-render current view when the theme changes (recolors charts).
     global.__onThemeChange = function () { render(); };
 

@@ -257,6 +257,11 @@ h1, h2, h3, .brand-name, .display, .stat-value, .num { font-family: "Space Grote
 textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .select { cursor: pointer; }
 
+.toast-undo { background: none; border: none; color: var(--accent); font: inherit; font-weight: 700; cursor: pointer; margin-left: 4px; padding: 2px 4px; }
+.spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; flex-shrink: 0; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-row { display: flex; align-items: center; gap: 10px; justify-content: center; padding: 26px 14px; color: var(--text-dim); font-size: 13.5px; }
+
 .empty-hint {
   text-align: center; padding: 44px 20px; color: var(--text-dim);
   border: 1.5px dashed var(--border-strong); border-radius: var(--radius); background: var(--surface-2);
@@ -594,6 +599,10 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .tmode { padding: 6px 12px; border: none; background: transparent; color: var(--text-dim); font: inherit; font-size: 12.5px; font-weight: 600; border-radius: 6px; cursor: pointer; transition: all 0.14s; }
 .tmode:hover { color: var(--ink); }
 .tmode.is-active { background: var(--solid); color: var(--on-solid); }
+.timer-panel.min { width: 200px; }
+.timer-panel.min .timer-presets, .timer-panel.min #timerMinus, .timer-panel.min #timerPlus, .timer-panel.min #timerReset { display: none; }
+.timer-panel.min .timer-dial { width: 92px; height: 92px; margin: 2px auto 8px; }
+.timer-panel.min .timer-time { font-size: 22px; }
 .timer-panel.mode-stopwatch .timer-presets { display: none; }
 .timer-panel.mode-stopwatch .ctl-rest { display: none; }
 
@@ -799,11 +808,11 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
   .sidebar { display: none; }
   .topbar {
     display: flex; align-items: center; justify-content: space-between;
-    position: sticky; top: 0; z-index: 80;
+    position: fixed; top: 0; left: 0; right: 0; z-index: 80;
     padding: 10px 14px calc(10px); padding-top: calc(10px + env(safe-area-inset-top));
     background: var(--surface); border-bottom: 1px solid var(--border);
   }
-  .main { padding: 20px 18px 96px; }
+  .main { padding: calc(60px + env(safe-area-inset-top)) 18px 96px; }
   .theme-toggle { display: none; }   /* moved into the top bar on mobile */
   .view-head h1 { font-size: 25px; }
   .history-metrics { width: 100%; justify-content: flex-start; margin-left: 0; margin-top: 12px; }
