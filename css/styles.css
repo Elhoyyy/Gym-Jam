@@ -643,11 +643,11 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .timer-panel.mode-stopwatch .ctl-sw { display: inline-flex; }
 /* Laps / tramos — only in stopwatch mode, hidden while minimized */
 .timer-laps { display: none; }
-.timer-panel.mode-stopwatch .timer-laps:not(:empty) {
+.timer-panel.mode-stopwatch:not(.min) .timer-laps:not(:empty) {
   display: block; max-height: 128px; overflow-y: auto; margin-top: 12px;
   border-top: 1px solid var(--border); padding-top: 8px;
 }
-.timer-panel.min .timer-laps { display: none; }
+.timer-panel.min .timer-laps { display: none !important; }
 .lap-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 5px 2px; border-bottom: 1px solid var(--border); }
 .lap-row:last-child { border-bottom: none; }
 .lap-n { font-size: 12.5px; color: var(--text-dim); font-weight: 600; }
@@ -675,16 +675,25 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 }
 .timer-preset:hover { border-color: var(--accent); color: var(--accent); }
 
-.timer-controls { display: flex; align-items: center; justify-content: center; gap: 8px; }
-.timer-controls .icon-btn { width: 40px; height: 34px; font-family: "Space Grotesk"; font-weight: 700; font-size: 12px; }
+.timer-controls { display: flex; align-items: center; justify-content: center; gap: 14px; }
+.timer-controls .icon-btn {
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim);
+  font-family: "Space Grotesk"; font-weight: 700; font-size: 12px;
+  display: grid; place-items: center; transition: all 0.13s;
+}
+.timer-controls .icon-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.timer-controls .icon-btn:active { transform: scale(0.9); }
+.timer-controls .icon-btn svg { width: 20px; height: 20px; }
 .timer-play {
-  width: 48px; height: 48px; border-radius: 50%; border: none; cursor: pointer;
+  width: 60px; height: 60px; border-radius: 50%; border: none; cursor: pointer;
   background: var(--accent); color: var(--accent-ink); display: grid; place-items: center;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 38%, transparent);
   transition: background 0.14s, transform 0.1s;
 }
 .timer-play:hover { background: var(--accent-dark); }
-.timer-play:active { transform: scale(0.94); }
-.timer-play svg { width: 22px; height: 22px; }
+.timer-play:active { transform: scale(0.92); }
+.timer-play svg { width: 26px; height: 26px; }
 
 /* ============================================================
    Install banner (discreet, top)

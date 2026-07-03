@@ -53,23 +53,38 @@
     return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") + "." + String(cs).padStart(2, "0");
   }
 
-  function render() {
+  const PAUSE_SVG = '<svg viewBox="0 0 24 24"><path d="M8 5h3v14H8zM13 5h3v14h-3z" fill="currentColor"/></svg>';
+  const PLAY_SVG = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7L8 5z" fill="currentColor"/></svg>';
+  let playShows = null;        // which icon the play button currently shows
+
+  // Cheap per-frame update: time + progress ring only.
+  function paint() {
     if (!panel) return;
-    let secs, frac, done = false;
-    if (mode === "rest") { secs = remaining; frac = total > 0 ? remaining / total : 0; done = total > 0 && remaining <= 0; }
+    let secs, frac;
+    if (mode === "rest") { secs = remaining; frac = total > 0 ? remaining / total : 0; }
     else { secs = elapsedSec(); frac = (elapsedMs() % 60000) / 60000; }
-    panel.querySelector(".timer-title").textContent = mode === "stopwatch" ? "Cronómetro" : "Temporizador";
     panel.querySelector(".tt-main").textContent = mmss(secs);
     panel.querySelector(".timer-ms").textContent = mode === "stopwatch" ? "." + String(Math.floor((elapsedMs() % 1000) / 10)).padStart(2, "0") : "";
     panel.querySelector(".timer-ring-fg").style.strokeDashoffset = (C * (1 - frac)).toFixed(1);
+  }
+
+  // Full render: paint + state-dependent bits (title, classes, play icon).
+  // The play icon is only rebuilt when its state actually changes, so tapping
+  // it never races a per-frame DOM rebuild.
+  function render() {
+    if (!panel) return;
+    const done = mode === "rest" && total > 0 && remaining <= 0;
+    paint();
+    panel.querySelector(".timer-title").textContent = mode === "stopwatch" ? "Cronómetro" : "Temporizador";
     panel.classList.toggle("is-done", done);
     panel.classList.toggle("mode-stopwatch", mode === "stopwatch");
     panel.classList.toggle("mode-rest", mode === "rest");
-    const play = panel.querySelector("#timerPlay");
-    play.innerHTML = running
-      ? '<svg viewBox="0 0 24 24"><path d="M8 5h3v14H8zM13 5h3v14h-3z" fill="currentColor"/></svg>'
-      : '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7L8 5z" fill="currentColor"/></svg>';
-    play.title = running ? "Pausar" : (mode === "stopwatch" ? "Iniciar" : "Reanudar");
+    if (playShows !== running) {
+      playShows = running;
+      const play = panel.querySelector("#timerPlay");
+      play.innerHTML = running ? PAUSE_SVG : PLAY_SVG;
+      play.title = running ? "Pausar" : (mode === "stopwatch" ? "Iniciar" : "Reanudar");
+    }
   }
 
   function startTick() { clearInterval(tickId); tickId = setInterval(tick, mode === "stopwatch" ? 40 : 200); }
@@ -79,7 +94,7 @@
       remaining = (endAt - Date.now()) / 1000;
       if (remaining <= 0) { remaining = 0; running = false; stopTick(); render(); beep(); return; }
     }
-    render();
+    paint();
   }
 
   function startWith(seconds) {
@@ -134,6 +149,7 @@
     ensure();
     panel.querySelector("#timerBack").style.display = backCb ? "" : "none";
     panel.classList.add("is-open");
+    playShows = null;   // force the play/pause icon + title to refresh for this mode
     render();
   }
   function close() { if (panel) panel.classList.remove("is-open"); }
