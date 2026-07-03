@@ -143,7 +143,8 @@
       </div>`;
     document.body.appendChild(panel);
     panel.querySelector("#timerClose").addEventListener("click", close);
-    panel.querySelector("#timerMin").addEventListener("click", () => panel.classList.toggle("min"));
+    panel.querySelector("#timerMin").addEventListener("click", (e) => { e.stopPropagation(); panel.classList.add("min"); });
+    panel.addEventListener("click", () => { if (panel.classList.contains("min")) panel.classList.remove("min"); });
     panel.querySelector("#timerBack").addEventListener("click", () => { close(); if (backCb) backCb(); });
     panel.querySelectorAll(".timer-preset").forEach((b) => b.addEventListener("click", () => startWith(+b.dataset.sec)));
     panel.querySelector("#timerPlay").addEventListener("click", togglePlay);

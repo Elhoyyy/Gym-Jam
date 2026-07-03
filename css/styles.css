@@ -599,10 +599,15 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .tmode { padding: 6px 12px; border: none; background: transparent; color: var(--text-dim); font: inherit; font-size: 12.5px; font-weight: 600; border-radius: 6px; cursor: pointer; transition: all 0.14s; }
 .tmode:hover { color: var(--ink); }
 .tmode.is-active { background: var(--solid); color: var(--on-solid); }
-.timer-panel.min { width: 200px; }
-.timer-panel.min .timer-presets, .timer-panel.min #timerMinus, .timer-panel.min #timerPlus, .timer-panel.min #timerReset { display: none; }
-.timer-panel.min .timer-dial { width: 92px; height: 92px; margin: 2px auto 8px; }
-.timer-panel.min .timer-time { font-size: 22px; }
+.timer-panel.min {
+  width: 76px; height: 76px; padding: 0; border-radius: 50%;
+  left: auto; right: 18px; bottom: 92px; transform: none;
+  display: grid; place-items: center; cursor: pointer; overflow: hidden;
+}
+.timer-panel.min .timer-head, .timer-panel.min .timer-presets, .timer-panel.min .timer-controls { display: none; }
+.timer-panel.min .timer-dial { width: 76px; height: 76px; margin: 0; }
+.timer-panel.min .timer-ring-bg { stroke: color-mix(in srgb, var(--accent) 22%, var(--surface-3)); }
+.timer-panel.min .timer-time { font-size: 15px; }
 .timer-panel.mode-stopwatch .timer-presets { display: none; }
 .timer-panel.mode-stopwatch .ctl-rest { display: none; }
 

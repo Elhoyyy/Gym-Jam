@@ -150,7 +150,7 @@
         <form class="auth-form" id="authForm" autocomplete="on">
           <div class="modal-field">
             <label>Nombre de usuario</label>
-            <input class="input" type="text" id="authUser" placeholder="p. ej. juanlifter" required minlength="3" maxlength="20" autocomplete="username" autocapitalize="none" spellcheck="false">
+            <input class="input" type="text" id="authUser" placeholder="p. ej. eloylifter" required minlength="3" maxlength="20" autocomplete="username" autocapitalize="none" spellcheck="false">
           </div>
           <div class="modal-field">
             <label>Contraseña</label>
