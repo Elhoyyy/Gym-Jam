@@ -277,11 +277,20 @@
         const cardio = ex && ex.group === "cardio";
         return {
           exerciseId: en.exerciseId,
-          sets: (en.sets || []).filter((s) =>
-            cardio
-              ? (Number(s.min) > 0 || Number(s.km) > 0)
-              : (Number(s.weight) >= 0 && Number(s.reps) > 0)
-          ),
+          sets: (en.sets || [])
+            .filter((s) =>
+              cardio
+                ? (Number(s.min) > 0 || Number(s.km) > 0)
+                : (Number(s.weight) >= 0 && Number(s.reps) > 0)
+            )
+            .map((s) => {
+              // Drop empty drop segments; remove the array if none remain.
+              if (!cardio && Array.isArray(s.drops)) {
+                const drops = s.drops.filter((d) => Number(d.reps) > 0 && Number(d.weight) >= 0);
+                if (drops.length) s.drops = drops; else delete s.drops;
+              }
+              return s;
+            }),
         };
       })
       .filter((en) => en.sets.length > 0);
@@ -316,7 +325,13 @@
     tpl.entries = (tpl.entries || [])
       .map((en) => ({
         exerciseId: en.exerciseId,
-        sets: (en.sets || []).map((s) => ({ ...s })),
+        // Deep-copy: a shallow {...s} would share the nested `drops` array, so
+        // editing the template later would mutate the source workout's drops.
+        sets: (en.sets || []).map((s) => {
+          const c = { ...s };
+          if (Array.isArray(s.drops)) c.drops = s.drops.map((d) => ({ ...d }));
+          return c;
+        }),
       }))
       .filter((en) => en.sets.length > 0);
 
@@ -355,7 +370,14 @@
   }
 
   /* --- Metrics helpers -------------------------------------- */
-  function setVolume(s) { return (Number(s.weight) || 0) * (Number(s.reps) || 0); }
+  // A dropset is one set with extra lighter "drops" done back-to-back. Its
+  // volume includes every drop segment; the top (main) weight/reps still drive
+  // 1RM and PRs elsewhere (drops are lighter, so they're ignored for strength).
+  function setVolume(s) {
+    let v = (Number(s.weight) || 0) * (Number(s.reps) || 0);
+    if (Array.isArray(s.drops)) s.drops.forEach((d) => { v += (Number(d.weight) || 0) * (Number(d.reps) || 0); });
+    return v;
+  }
 
   function workoutVolume(w) {
     let v = 0;

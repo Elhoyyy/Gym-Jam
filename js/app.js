@@ -47,16 +47,22 @@
   function newDraft() {
     return { date: todayISO(), groups: [], notes: "", entries: [] };
   }
-  const DRAFT_KEY = "gymandjam.draft";
+  // Per-user so an unsaved draft (with private notes) never leaks to the next
+  // account that logs in on the same browser. Falls back to a shared key in
+  // pure local mode (no account).
+  function draftKey() {
+    const uid = global.Auth && global.Auth.uid;
+    return uid != null ? "gymandjam.draft.u" + uid : "gymandjam.draft";
+  }
   function saveDraft() {
     try {
-      if (draft && (draft.entries.length || draft.groups.length || draft.notes)) localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-      else localStorage.removeItem(DRAFT_KEY);
+      if (draft && (draft.entries.length || draft.groups.length || draft.notes)) localStorage.setItem(draftKey(), JSON.stringify(draft));
+      else localStorage.removeItem(draftKey());
     } catch (_) {}
   }
   function loadDraft() {
     try {
-      const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
+      const d = JSON.parse(localStorage.getItem(draftKey()) || "null");
       if (d && Array.isArray(d.entries) && (d.entries.length || (d.groups && d.groups.length))) return d;
     } catch (_) {}
     return null;
@@ -176,19 +182,36 @@
      STREAK
      ============================================================ */
   function computeStreak() {
-    const dates = [...new Set(DB.get().workouts.map((w) => w.date))];
-    if (draft && draft.date === todayISO() && Array.isArray(draft.entries) && draft.entries.length) dates.push(todayISO());
-    dates.sort().reverse();
+    // Distinct training days. Add today only if there's an in-progress draft,
+    // using a Set so it never duplicates an already-saved workout for today
+    // (a duplicate would read as a 0-day gap and truncate the streak to 1).
+    const days = new Set(DB.get().workouts.map((w) => w.date).filter(Boolean));
+    if (draft && draft.date === todayISO() && Array.isArray(draft.entries) && draft.entries.length) days.add(todayISO());
+    const dates = [...days].sort().reverse();
     if (!dates.length) return 0;
     const today = todayISO();
     const gap0 = daysBetween(today, dates[0]);
-    if (gap0 > 1) return 0; // streak broken
+    if (gap0 > 1) return 0; // last training day is 2+ days ago → streak broken
     let streak = 1;
     for (let i = 1; i < dates.length; i++) {
       if (daysBetween(dates[i - 1], dates[i]) === 1) streak++;
       else break;
     }
     return streak;
+  }
+
+  // Distinct training days grouped by calendar year, most recent year first.
+  // Each new year starts its own count while past years stay recorded.
+  function trainedDaysByYear() {
+    const byYear = {};
+    DB.get().workouts.forEach((w) => {
+      if (!w.date) return;
+      const y = w.date.slice(0, 4);
+      (byYear[y] = byYear[y] || new Set()).add(w.date);
+    });
+    return Object.entries(byYear)
+      .map(([year, set]) => ({ year, days: set.size }))
+      .sort((a, b) => b.year.localeCompare(a.year));
   }
   function updateStreak() {
     const el = document.getElementById("streakNum");
@@ -322,6 +345,16 @@
   /* --- Cardio-aware set helpers ----------------------------- */
   function isCardio(group) { return group === "cardio"; }
   function newSetFor(group) { return isCardio(group) ? { min: "", km: "" } : { weight: "", reps: "" }; }
+  // Deep-copy sets so the nested `drops` array is never shared by reference
+  // between a workout and a routine/copy made from it.
+  function cloneSets(sets) {
+    return (sets || []).map((s) => {
+      const c = { ...s };
+      if (Array.isArray(s.drops)) c.drops = s.drops.map((d) => ({ ...d }));
+      return c;
+    });
+  }
+  function hasDrops(s) { return Array.isArray(s.drops) && s.drops.length > 0; }
   // Unilateral (per-side) exercises: an explicit flag, or an obvious name match.
   const UNILAT_RE = /unilat|a una mano|a un brazo|a una pierna|b[úu]lgar|split squat|pistol/i;
   function nameLooksUnilateral(name) { return UNILAT_RE.test(name || ""); }
@@ -351,7 +384,9 @@
       if (s.km) a.push(fmtNum(s.km) + " km");
       return a.join(" · ") || "—";
     }
-    return (s.side ? s.side + " " : "") + fmtNum(s.weight) + "×" + s.reps;
+    let out = (s.side ? s.side + " " : "") + fmtNum(s.weight) + "×" + s.reps;
+    if (hasDrops(s)) out += s.drops.map((d) => " → " + fmtNum(d.weight) + "×" + d.reps).join("");
+    return out;
   }
   // Per-set summary cell (right of the inputs).
   function setSummary(group, s) {
@@ -399,13 +434,28 @@
       </div>` : "";
       const setsHtml = en.sets.map((s, si) => {
         const isPR = !cardio && s.weight && s.reps && isPersonalRecord(en.exerciseId, s.weight, s.reps);
-        return `<div class="set-row" data-ei="${ei}" data-si="${si}">
-          <div class="set-idx">${si + 1}</div>
-          ${uni ? `<button class="side-toggle${s.side ? " is-set" : ""}" data-action="side" title="Lado (Izq/Dcha)">${s.side || "·"}</button>` : ""}
-          <input class="set-input" type="number" inputmode="decimal" min="0" step="${fields[0].step}" placeholder="${fields[0].ph}" value="${s[fields[0].key] ?? ""}" data-field="${fields[0].key}">
-          <input class="set-input" type="number" inputmode="decimal" min="0" step="${fields[1].step}" placeholder="${fields[1].ph}" value="${s[fields[1].key] ?? ""}" data-field="${fields[1].key}">
-          <div class="set-vol">${setSummary(ex.group, s)} ${isPR ? '<span class="pr-tag">PR</span>' : ""}</div>
-          <button class="icon-btn danger" data-action="del-set" title="Eliminar serie"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        const dropsHtml = (!cardio && Array.isArray(s.drops) ? s.drops : []).map((d, dk) => `
+          <div class="drop-row" data-ei="${ei}" data-si="${si}" data-dk="${dk}">
+            <span class="drop-mark" title="Descuelgue">↓</span>
+            ${uni ? "<span></span>" : ""}
+            <input class="set-input" type="number" inputmode="decimal" min="0" step="${fields[0].step}" placeholder="${fields[0].ph}" value="${d[fields[0].key] ?? ""}" data-field="${fields[0].key}" data-drop>
+            <input class="set-input" type="number" inputmode="decimal" min="0" step="${fields[1].step}" placeholder="${fields[1].ph}" value="${d[fields[1].key] ?? ""}" data-field="${fields[1].key}" data-drop>
+            <div class="set-vol">${setSummary(ex.group, d)}</div>
+            <button class="icon-btn danger" data-action="del-drop" title="Quitar descuelgue"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+          </div>`).join("");
+        return `<div class="set-group" data-ei="${ei}" data-si="${si}">
+          <div class="set-row" data-ei="${ei}" data-si="${si}">
+            <div class="set-idx">${si + 1}</div>
+            ${uni ? `<button class="side-toggle${s.side ? " is-set" : ""}" data-action="side" title="Lado (Izq/Dcha)">${s.side || "·"}</button>` : ""}
+            <input class="set-input" type="number" inputmode="decimal" min="0" step="${fields[0].step}" placeholder="${fields[0].ph}" value="${s[fields[0].key] ?? ""}" data-field="${fields[0].key}">
+            <input class="set-input" type="number" inputmode="decimal" min="0" step="${fields[1].step}" placeholder="${fields[1].ph}" value="${s[fields[1].key] ?? ""}" data-field="${fields[1].key}">
+            <div class="set-vol">${setSummary(ex.group, s)} ${isPR ? '<span class="pr-tag">PR</span>' : ""}</div>
+            <div class="set-actions">
+              ${cardio ? "" : `<button class="icon-btn" data-action="add-drop" title="Dropset · añadir descuelgue"><svg viewBox="0 0 24 24"><path d="M12 5v11m0 0l-5-5m5 5l5-5M5 20h14" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`}
+              <button class="icon-btn danger" data-action="del-set" title="Eliminar serie"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+            </div>
+          </div>
+          ${dropsHtml}
         </div>`;
       }).join("");
 
@@ -484,20 +534,32 @@
   function onEntryInput(e) {
     const input = e.target.closest(".set-input");
     if (!input) return;
-    const row = input.closest(".set-row");
+    const isDrop = input.hasAttribute("data-drop");
+    const row = input.closest(isDrop ? ".drop-row" : ".set-row");
     const ei = +row.dataset.ei, si = +row.dataset.si;
     const field = input.dataset.field;
-    draft.entries[ei].sets[si][field] = input.value === "" ? "" : Number(input.value);
-    // Update just the summary cell live
     const ex = DB.exerciseById(draft.entries[ei].exerciseId);
     const group = ex ? ex.group : "";
     const s = draft.entries[ei].sets[si];
-    const volCell = row.querySelector(".set-vol");
-    const pr = !isCardio(group) && s.weight && s.reps && isPersonalRecord(draft.entries[ei].exerciseId, s.weight, s.reps);
-    volCell.innerHTML = setSummary(group, s) + (pr ? ' <span class="pr-tag">PR</span>' : "");
+    const target = isDrop ? s.drops[+row.dataset.dk] : s;
+    target[field] = input.value === "" ? "" : Number(input.value);
+    // Live-update this row's own volume cell…
+    const rowVol = row.querySelector(".set-vol");
+    if (rowVol) {
+      const pr = !isDrop && !isCardio(group) && s.weight && s.reps && isPersonalRecord(draft.entries[ei].exerciseId, s.weight, s.reps);
+      rowVol.innerHTML = setSummary(group, target) + (pr ? ' <span class="pr-tag">PR</span>' : "");
+    }
+    // …and, when a drop changed, the parent set's total too (it sums drops).
+    if (isDrop) {
+      const mainVol = row.closest(".set-group").querySelector(".set-row .set-vol");
+      if (mainVol) {
+        const pr = !isCardio(group) && s.weight && s.reps && isPersonalRecord(draft.entries[ei].exerciseId, s.weight, s.reps);
+        mainVol.innerHTML = setSummary(group, s) + (pr ? ' <span class="pr-tag">PR</span>' : "");
+      }
+    }
     // Update exercise header total
     const block = row.closest(".ex-block");
-    block.querySelector(".ex-vol b").textContent = entryTotal(group, draft.entries[ei]);
+    if (block) block.querySelector(".ex-vol b").textContent = entryTotal(group, draft.entries[ei]);
     saveDraft();
   }
 
@@ -512,7 +574,24 @@
       const group = ex ? ex.group : "";
       const sets = draft.entries[ei].sets;
       const last = sets[sets.length - 1];
-      sets.push(last ? { ...last } : newSetFor(group));
+      // Copy the previous set's numbers as a starting point, but never carry
+      // over its drops — a fresh set isn't a dropset until you make it one.
+      let next;
+      if (last) { next = { ...last }; delete next.drops; } else next = newSetFor(group);
+      sets.push(next);
+      refreshEntries();
+    } else if (action === "add-drop") {
+      const row = btn.closest(".set-row");
+      const ei = +row.dataset.ei, si = +row.dataset.si;
+      const set = draft.entries[ei].sets[si];
+      if (!Array.isArray(set.drops)) set.drops = [];
+      set.drops.push({ weight: "", reps: "" });
+      refreshEntries();
+    } else if (action === "del-drop") {
+      const row = btn.closest(".drop-row");
+      const ei = +row.dataset.ei, si = +row.dataset.si, dk = +row.dataset.dk;
+      const set = draft.entries[ei].sets[si];
+      if (Array.isArray(set.drops)) { set.drops.splice(dk, 1); if (!set.drops.length) delete set.drops; }
       refreshEntries();
     } else if (action === "side") {
       const row = btn.closest(".set-row");
@@ -692,7 +771,7 @@
       .filter((en) => DB.exerciseById(en.exerciseId))
       .map((en) => ({
         exerciseId: en.exerciseId,
-        sets: en.sets.map((s) => ({ ...s })),
+        sets: cloneSets(en.sets),
       }));
     draft = { date: todayISO(), groups: [...(w.groups || [])], notes: "", entries };
     closeModal();
@@ -766,7 +845,7 @@
         groups: [...draft.groups],
         entries: draft.entries.map((en) => ({
           exerciseId: en.exerciseId,
-          sets: en.sets.map((s) => ({ ...s })),
+          sets: cloneSets(en.sets),
         })),
       });
       closeModal();
@@ -831,7 +910,7 @@
         name, folder: folder || undefined, groups: [...(w.groups || [])],
         entries: (w.entries || []).map((en) => ({
           exerciseId: en.exerciseId,
-          sets: en.sets.map((s) => ({ ...s })),
+          sets: cloneSets(en.sets),
         })),
       });
       closeModal();
@@ -850,7 +929,7 @@
       .filter((en) => DB.exerciseById(en.exerciseId))
       .map((en) => ({
         exerciseId: en.exerciseId,
-        sets: en.sets.map((s) => ({ ...s })),
+        sets: cloneSets(en.sets),
       }));
     draft = { date: todayISO(), groups: [...(t.groups || [])], notes: "", entries };
     closeModal();
@@ -929,7 +1008,7 @@
       groups: [...(t.groups || [])],
       entries: (t.entries || []).map((en) => {
         const ex = DB.exerciseById(en.exerciseId);
-        return ex ? { name: ex.name, group: ex.group, sets: en.sets.map((s) => ({ ...s })) } : null;
+        return ex ? { name: ex.name, group: ex.group, sets: cloneSets(en.sets) } : null;
       }).filter(Boolean),
     };
   }
@@ -1079,7 +1158,7 @@
       const group = G[e.group] ? e.group : "pecho";
       let ex = DB.get().exercises.find((x) => x.name === e.name && x.group === group);
       if (!ex) ex = DB.addExercise(e.name, group);
-      return ex ? { exerciseId: ex.id, sets: (e.sets || []).map((s) => ({ ...s })) } : null;
+      return ex ? { exerciseId: ex.id, sets: cloneSets(e.sets) } : null;
     }).filter(Boolean);
     return DB.saveTemplate({
       name: (share.name || "Rutina compartida").slice(0, 80),
@@ -1236,7 +1315,7 @@
       const g = G[ex.group];
       const pills = en.sets.map((s) => isCardio(ex.group)
         ? `<span class="set-pill">${s.min ? `<b>${fmtNum(s.min)}</b> min` : ""}${s.min && s.km ? " · " : ""}${s.km ? `<b>${fmtNum(s.km)}</b> km` : ""}</span>`
-        : `<span class="set-pill">${s.side ? `<span class="side-badge">${s.side}</span> ` : ""}<b>${fmtNum(s.weight)}</b>kg × <b>${s.reps}</b></span>`
+        : `<span class="set-pill${hasDrops(s) ? " has-drops" : ""}">${s.side ? `<span class="side-badge">${s.side}</span> ` : ""}<b>${fmtNum(s.weight)}</b>kg × <b>${s.reps}</b>${hasDrops(s) ? s.drops.map((d) => `<span class="drop-seg">↓ <b>${fmtNum(d.weight)}</b>×<b>${d.reps}</b></span>`).join("") : ""}</span>`
       ).join("");
       let pacePill = "";
       if (isCardio(ex.group)) {
@@ -1357,6 +1436,8 @@
           ${statCard("Media / sesión", fmtNum(stats.avgVolume), "kg volumen")}
         </div>
 
+        ${lastWorkoutComparisonCard()}
+
         <div class="chart-grid">
           <div class="card chart-card">
             <div class="chart-head"><h3>Volumen por sesión</h3><span class="hint">Últimas ${stats.volumeSeries.length} sesiones</span></div>
@@ -1387,7 +1468,7 @@
         </div>
 
         <div class="card mt-24">
-          <div class="section-title mb-16">🏆 Records personales <span class="count-pill">${stats.records.length}</span></div>
+          <div class="section-title mb-16">Records personales <span class="count-pill">${stats.records.length}</span></div>
           ${stats.records.length ? stats.records.map((r, i) => `
             <div class="record-row">
               <div class="record-rank ${i < 3 ? "top" : ""}">${i + 1}</div>
@@ -1397,7 +1478,9 @@
               </div>
               <div class="record-val"><b>${fmtNum(r.maxWeight)} kg</b><span>mejor marca</span></div>
             </div>`).join("") : '<div class="text-dim">Registra más series para ver tus records.</div>'}
-        </div>`;
+        </div>
+
+        ${trainedYearsCard()}`;
 
     const sel = $("#progExercise");
     if (sel) {
@@ -1743,6 +1826,145 @@
       });
     }));
     return Object.values(map).filter((r) => r.maxWeight > 0).sort((a, b) => b.oneRM - a.oneRM).slice(0, 8);
+  }
+
+  /* ---------- Last workout vs. the previous time ------------- */
+  // Per-exercise metrics for one session. Strength keeps top weight, volume,
+  // best estimated 1RM and total reps; cardio keeps distance, time and pace.
+  function exerciseMetrics(group, sets) {
+    sets = sets || [];
+    if (group === "cardio") {
+      let km = 0, min = 0;
+      sets.forEach((s) => { km += Number(s.km) || 0; min += Number(s.min) || 0; });
+      return { km, min, pace: km > 0 && min > 0 ? min / km : 0 };
+    }
+    let maxW = 0, vol = 0, best1rm = 0, reps = 0;
+    sets.forEach((s) => {
+      const w = Number(s.weight) || 0, r = Number(s.reps) || 0;
+      if (r <= 0) return;           // ignore blank/half-entered sets
+      if (w > maxW) maxW = w;
+      vol += w * r; reps += r;
+      const o = DB.estimate1RM(w, r); if (o > best1rm) best1rm = o;
+    });
+    return { maxW, vol, best1rm, reps };
+  }
+
+  // Compare a session's metrics for one exercise against a previous session.
+  // Picks the single fairest metric so we never compare apples to oranges:
+  //  · Strength, both loaded → estimated 1RM (accounts for the weight×reps
+  //    trade-off, e.g. 100×5 vs 105×3).
+  //  · Strength, both bodyweight (no external load) → total reps.
+  //  · Strength, one loaded + one bodyweight → not comparable (load changed).
+  //  · Cardio → pace if both logged distance+time; else distance; else time.
+  // Returns null when there's no honest comparison to make.
+  function compareEntryMetrics(group, cur, prev) {
+    let metric, curV, prevV, higherBetter, fmtV;
+    if (group === "cardio") {
+      if (prev.pace > 0 && cur.pace > 0) { metric = "Ritmo"; curV = cur.pace; prevV = prev.pace; higherBetter = false; fmtV = (v) => fmtPace(v) + " /km"; }
+      else if (prev.km > 0 && cur.km > 0) { metric = "Distancia"; curV = cur.km; prevV = prev.km; higherBetter = true; fmtV = (v) => fmtNum(Math.round(v * 10) / 10) + " km"; }
+      else if (prev.min > 0 && cur.min > 0) { metric = "Tiempo"; curV = cur.min; prevV = prev.min; higherBetter = true; fmtV = (v) => fmtDuration(v); }
+      else return null;
+    } else {
+      if (prev.maxW > 0 && cur.maxW > 0) { metric = "1RM est."; curV = cur.best1rm; prevV = prev.best1rm; higherBetter = true; fmtV = (v) => fmtNum(Math.round(v)) + " kg"; }
+      else if (prev.maxW === 0 && cur.maxW === 0 && prev.reps > 0 && cur.reps > 0) { metric = "Reps"; curV = cur.reps; prevV = prev.reps; higherBetter = true; fmtV = (v) => Math.round(v) + " reps"; }
+      else return null;
+    }
+    const diff = curV - prevV;
+    // Tolerance so float noise / an identical re-log reads as "igual", not a change.
+    const eps = metric === "Ritmo" ? 0.03 : metric === "1RM est." ? 0.4 : 0.001;
+    const verdict = Math.abs(diff) <= eps ? "same" : ((diff > 0) === higherBetter ? "up" : "down");
+    const pct = prevV > 0 ? (diff / prevV) * 100 : null;
+    return { metric, verdict, curText: fmtV(curV), prevText: fmtV(prevV), pct };
+  }
+
+  // Compare your most recent training DAY to each exercise's previous outing.
+  // A single day can hold more than one saved record (e.g. push + pull logged
+  // separately), so we merge every set trained that day per exercise, and
+  // compare against the most recent *earlier day* that has the same exercise
+  // (its sets merged too). This avoids same-day records comparing against each
+  // other and keeps "último entreno" meaning "your last training day".
+  function mergedSetsFor(workouts, exId) {
+    const sets = [];
+    workouts.forEach((w) => (w.entries || []).forEach((e) => { if (e.exerciseId === exId) sets.push(...(e.sets || [])); }));
+    return sets;
+  }
+  function compareLastWorkout() {
+    const ws = DB.sortedWorkouts(); // date desc
+    if (!ws.length) return null;
+    const lastDate = ws[0].date;
+    const lastDay = ws.filter((w) => w.date === lastDate);
+
+    // Exercises trained on the last day, in the order they appear.
+    const order = [];
+    lastDay.forEach((w) => (w.entries || []).forEach((en) => { if (!order.includes(en.exerciseId)) order.push(en.exerciseId); }));
+
+    const rows = [];
+    let up = 0, down = 0, same = 0, fresh = 0;
+    order.forEach((exId) => {
+      const ex = DB.exerciseById(exId);
+      if (!ex) return;
+      const curSets = mergedSetsFor(lastDay, exId);
+      // Most recent earlier day containing this exercise (ws is date-desc).
+      const prevW = ws.find((w) => w.date < lastDate && (w.entries || []).some((e) => e.exerciseId === exId));
+      if (!prevW) { fresh++; rows.push({ name: ex.name, group: ex.group, fresh: true }); return; }
+      const prevSets = mergedSetsFor(ws.filter((w) => w.date === prevW.date), exId);
+      const cmp = compareEntryMetrics(ex.group, exerciseMetrics(ex.group, curSets), exerciseMetrics(ex.group, prevSets));
+      if (!cmp) { rows.push({ name: ex.name, group: ex.group, na: true }); return; }
+      if (cmp.verdict === "up") up++; else if (cmp.verdict === "down") down++; else same++;
+      rows.push({ name: ex.name, group: ex.group, prevDate: prevW.date, ...cmp });
+    });
+    return { date: lastDate, rows, up, down, same, fresh };
+  }
+
+  function lastWorkoutComparisonCard() {
+    const c = compareLastWorkout();
+    if (!c || !c.rows.length) return "";
+    const dateLabel = fmtDate(c.date, { day: "numeric", month: "long" });
+    const chip = (n, cls, label) => (n ? `<span class="cmp-chip ${cls}">${label} ${n}</span>` : "");
+    const summary = chip(c.up, "up", "↑ Mejor") + chip(c.same, "same", "= Igual") + chip(c.down, "down", "↓ Peor") + chip(c.fresh, "fresh", "★ Nuevo");
+    const rows = c.rows.map((r) => {
+      const g = G[r.group] || {};
+      let right, meta;
+      if (r.fresh) { right = `<div class="cmp-val fresh"><b>Primera vez</b></div>`; meta = "Sin registro anterior"; }
+      else if (r.na) { right = `<div class="cmp-val na"><b>—</b></div>`; meta = "Cambió el tipo de carga"; }
+      else {
+        const arrow = r.verdict === "up" ? "↑" : r.verdict === "down" ? "↓" : "=";
+        const pctText = (r.pct != null && r.verdict !== "same") ? ` · ${r.pct > 0 ? "+" : ""}${Math.round(r.pct)}%` : "";
+        right = `<div class="cmp-val ${r.verdict}"><b>${arrow} ${r.curText}</b><span>antes ${r.prevText}${pctText}</span></div>`;
+        meta = r.metric;
+      }
+      return `<div class="cmp-row">
+        <span class="ex-dot" style="background:${g.color || "#888"}"></span>
+        <div class="cmp-info"><div class="cmp-name">${escapeHtml(r.name)}</div><div class="cmp-metric">${meta}</div></div>
+        ${right}
+      </div>`;
+    }).join("");
+    return `<div class="card mt-24">
+      <div class="section-title">Tu último entreno</div>
+      <p class="text-dim" style="font-size:12.5px;margin:-6px 0 14px">${dateLabel} · comparado con la vez anterior de cada ejercicio</p>
+      <div class="cmp-summary">${summary}</div>
+      <div class="cmp-list">${rows}</div>
+    </div>`;
+  }
+
+  // Total distinct training days per calendar year (current year highlighted,
+  // past years kept on record).
+  function trainedYearsCard() {
+    const years = trainedDaysByYear();
+    if (!years.length) return "";
+    const cur = String(new Date().getFullYear());
+    const curDays = (years.find((y) => y.year === cur) || { days: 0 }).days;
+    const past = years.filter((y) => y.year !== cur);
+    const pastRows = past.map((y) => `<div class="record-row">
+      <div class="record-rank">${y.year.slice(2)}</div>
+      <div><div class="record-name">${y.year}</div><div class="record-meta">temporada cerrada</div></div>
+      <div class="record-val"><b>${y.days}</b><span>días</span></div>
+    </div>`).join("");
+    return `<div class="card mt-24">
+      <div class="section-title mb-16">Días entrenados por año</div>
+      <div class="year-hero"><span class="year-hero-num">${curDays}</span><span class="year-hero-sub">días entrenados en <b>${cur}</b></span></div>
+      ${pastRows}
+    </div>`;
   }
 
   function isoOf(d) {

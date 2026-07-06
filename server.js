@@ -7,7 +7,7 @@
 import { createServer } from "node:http";
 import { readFile, mkdir } from "node:fs/promises";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { extname, join, normalize, dirname } from "node:path";
+import { extname, join, normalize, dirname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { scryptSync, randomBytes, timingSafeEqual, createHmac } from "node:crypto";
@@ -113,13 +113,15 @@ function sendJSON(res, code, obj) {
 }
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    let data = ""; let size = 0;
+    const chunks = []; let size = 0;
     req.on("data", (c) => {
       size += c.length;
       if (size > 4 * 1024 * 1024) { reject(new Error("payload demasiado grande")); req.destroy(); return; }
-      data += c;
+      chunks.push(c);
     });
-    req.on("end", () => resolve(data));
+    // Concat as Buffers, decode once: a multibyte char (á, ñ…) split across
+    // two TCP chunks would corrupt if we appended chunks as strings.
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     req.on("error", reject);
   });
 }
@@ -151,6 +153,39 @@ function setSessionCookie(req, res, token) {
   res.setHeader("Set-Cookie", `gj_token=${token}; Path=/; Max-Age=${TOKEN_TTL}; HttpOnly; SameSite=Lax${secure}`);
 }
 const USERNAME_RE = /^[a-z0-9._-]{3,20}$/;
+// Normalize a username: lowercase + strip diacritics so "ñ" → "n", "josé" → "jose".
+// Must match the client so register and login always agree on the stored name.
+function normUsername(v) {
+  return String(v || "").trim().toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+}
+
+/* ---------- brute-force throttle (in-memory, per IP) ---------- */
+const RL_WINDOW = 15 * 60 * 1000;   // 15 min window
+const RL_MAX = 10;                  // failed logins per window before lockout
+const rlHits = new Map();           // ip -> { count, resetAt }
+function clientIp(req) {
+  const xf = (req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return xf || (req.socket && req.socket.remoteAddress) || "?";
+}
+function rlBlocked(ip) {
+  const e = rlHits.get(ip);
+  if (!e) return false;
+  if (Date.now() > e.resetAt) { rlHits.delete(ip); return false; }
+  return e.count >= RL_MAX;
+}
+function rlFail(ip) {
+  const now = Date.now();
+  const e = rlHits.get(ip);
+  if (!e || now > e.resetAt) rlHits.set(ip, { count: 1, resetAt: now + RL_WINDOW });
+  else e.count++;
+}
+function rlReset(ip) { rlHits.delete(ip); }
+// Drop expired entries so the map can't grow unbounded. Unref'd so it never
+// keeps the process alive on its own.
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, e] of rlHits) if (now > e.resetAt) rlHits.delete(ip);
+}, RL_WINDOW).unref();
 
 function round1(v) { v = Number(v); return isFinite(v) ? Math.round(v * 10) / 10 : 0; }
 
@@ -197,6 +232,18 @@ function sanitizeTemplate(t) {
       ["weight", "reps", "min", "km"].forEach((k) => {
         if (s && s[k] !== undefined && s[k] !== "" && isFinite(Number(s[k]))) o[k] = Number(s[k]);
       });
+      if (s && (s.side === "I" || s.side === "D")) o.side = s.side;
+      // Preserve dropset segments (bounded), else shared routines lose them.
+      if (s && Array.isArray(s.drops) && s.drops.length) {
+        const drops = s.drops.slice(0, 8).map((d) => {
+          const dd = {};
+          ["weight", "reps"].forEach((k) => {
+            if (d && d[k] !== undefined && d[k] !== "" && isFinite(Number(d[k]))) dd[k] = Number(d[k]);
+          });
+          return dd;
+        }).filter((d) => Number(d.reps) > 0);
+        if (drops.length) o.drops = drops;
+      }
       return o;
     });
     return { name: en.name.slice(0, 80), group: en.group.slice(0, 20), sets };
@@ -233,8 +280,9 @@ async function handleApi(req, res, url) {
   }
 
   if (path === "/api/register" && req.method === "POST") {
+    if (rlBlocked(clientIp(req))) return sendJSON(res, 429, { error: "Demasiados intentos. Espera unos minutos e inténtalo de nuevo." });
     const { username, password } = await readJSON(req);
-    const uname = String(username || "").trim().toLowerCase();
+    const uname = normUsername(username);
     if (!USERNAME_RE.test(uname)) return sendJSON(res, 400, { error: "Usuario no válido (3-20 caracteres: letras, números, . _ -)" });
     if (String(password || "").length < 6) return sendJSON(res, 400, { error: "La contraseña debe tener al menos 6 caracteres" });
     if (q.byUsername.get(uname)) return sendJSON(res, 409, { error: "Ese nombre de usuario ya está en uso" });
@@ -242,18 +290,23 @@ async function handleApi(req, res, url) {
     const now = Date.now();
     const info = q.insert.run(uname, salt, hash, "{}", now, now);
     const user = q.byId.get(info.lastInsertRowid);
+    rlReset(clientIp(req));
     const token = issueToken(user);
     setSessionCookie(req, res, token);
     return sendJSON(res, 201, { token, username: user.username, uid: user.id });
   }
 
   if (path === "/api/login" && req.method === "POST") {
+    const ip = clientIp(req);
+    if (rlBlocked(ip)) return sendJSON(res, 429, { error: "Demasiados intentos. Espera unos minutos e inténtalo de nuevo." });
     const { username, password } = await readJSON(req);
-    const uname = String(username || "").trim().toLowerCase();
+    const uname = normUsername(username);
     const user = q.byUsername.get(uname);
     if (!user || !verifyPassword(String(password || ""), user.salt, user.hash)) {
+      rlFail(ip);
       return sendJSON(res, 401, { error: "Usuario o contraseña incorrectos" });
     }
+    rlReset(ip);
     const token = issueToken(user);
     setSessionCookie(req, res, token);
     return sendJSON(res, 200, { token, username: user.username, uid: user.id });
@@ -373,7 +426,11 @@ async function handleStatic(req, res, url) {
   if (urlPath === "/") urlPath = "/index.html";
   const filePath = normalize(join(__dirname, urlPath));
   // Never serve the data directory (db + secret) or files outside the project.
-  if (!filePath.startsWith(__dirname) || filePath.startsWith(DATA_DIR)) {
+  // Compare on directory boundaries (sep) so a sibling dir sharing the project
+  // name prefix (e.g. "GymAndJam-backup") can't be reached via encoded "..".
+  const root = __dirname + sep;
+  const dataDir = DATA_DIR + sep;
+  if (!filePath.startsWith(root) || filePath.startsWith(dataDir)) {
     res.writeHead(403).end("Forbidden");
     return;
   }

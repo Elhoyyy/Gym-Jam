@@ -8,9 +8,13 @@
   "use strict";
 
   const TOKEN_KEY = "gymandjam.token";
+  // Lowercase + strip diacritics ("ñ" → "n", "josé" → "jose"). Must mirror the
+  // server's normUsername so login and register agree on the stored name.
+  const normUsername = (v) => String(v || "").trim().toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
   let mode = "local";           // "local" | "backend"
   let token = null;
   let username = null;
+  let userId = null;            // current account id (namespaces per-user local data)
   let onReady = function () {};
   let syncTimer = null;
   let syncState = "idle";       // idle | saving | synced | offline
@@ -35,25 +39,47 @@
   }
 
   /* ---------- sync ---------- */
+  // A per-user "pending" flag marks local changes not yet confirmed by the
+  // server. It survives reloads, so offline edits get pushed on the next
+  // connection and are never silently overwritten by a server pull.
+  // The pending value is a unique token, not just a flag: every local change
+  // writes a fresh token, and a push only clears it if the token is unchanged
+  // when the upload confirms. That way a change made *while a push is in flight*
+  // (whose data wasn't in that push) is never marked as synced by mistake.
+  function pendingKey() { return "gymandjam.pending.u" + (userId != null ? userId : "_"); }
+  function readPending() { try { return localStorage.getItem(pendingKey()); } catch (_) { return null; } }
+  function hasPending() { return readPending() != null; }
+  function markPending() { try { localStorage.setItem(pendingKey(), Date.now().toString(36) + Math.random().toString(36).slice(2, 6)); } catch (_) {} }
+  function clearPending() { try { localStorage.removeItem(pendingKey()); } catch (_) {} }
+
   function registerSync() {
     DB.onSave(() => scheduleSync());
   }
   function scheduleSync() {
+    markPending();                 // remember there's something to upload
     setSync("saving");
     clearTimeout(syncTimer);
     syncTimer = setTimeout(pushNow, 800);
   }
   async function pushNow() {
     if (mode !== "backend") return;   // cookie authenticates even without a localStorage token
+    const token = readPending();
+    if (!token) { setSync("synced"); return; }
+    if (typeof navigator !== "undefined" && navigator.onLine === false) { setSync("offline"); return; }
     try {
       const state = JSON.parse(DB.exportJSON());
       await api("/api/state", { method: "PUT", body: { state }, auth: true });
-      setSync("synced");
+      // Only mark synced if no newer change arrived during the upload.
+      if (readPending() === token) { clearPending(); setSync("synced"); }
+      else { setSync("saving"); }      // a newer change is already queued to push
     } catch (err) {
       if (err.status === 401) return forceLogout();
-      setSync("offline");
+      setSync("offline");              // keep the token → retried when back online
     }
   }
+  // Retry unsynced changes the moment the network comes back.
+  function flushWhenOnline() { if (mode === "backend" && hasPending()) pushNow(); }
+  window.addEventListener("online", flushWhenOnline);
   function setSync(s) {
     syncState = s;
     const map = {
@@ -198,7 +224,7 @@
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       errorBox.hidden = true;
-      const uname = userInput.value.trim().toLowerCase();
+      const uname = normUsername(userInput.value);
       const pw = passInput.value;
       if (tab === "register" && !/^[a-z0-9._-]{3,20}$/.test(uname)) { showError("Usuario: 3-20 caracteres (letras, números, . _ -)."); return; }
       if (!uname || pw.length < 6) { showError("Revisa el usuario y una contraseña de 6+ caracteres."); return; }
@@ -228,7 +254,7 @@
   async function enterApp(isNew, me) {
     me = me || {};
     const uid = me.uid != null ? me.uid : (decodeToken(token) || {}).uid;
-    if (uid != null) DB.setCacheKey("gymandjam.v1.u" + uid);
+    if (uid != null) { userId = uid; DB.setCacheKey("gymandjam.v1.u" + uid); }
     username = me.username || username || (decodeToken(token) || {}).username;
 
     let serverState = {};
@@ -246,19 +272,30 @@
       return;
     }
 
-    DB.replaceState(serverState);
-    registerSync();
-    mountAccount();
-    setSync("synced");
-    onReady();
-    // Ensure a brand-new account persists its seeded library server-side.
-    if (isNew || !serverState.exercises) pushNow();
+    // Reconcile local vs server. If this device has changes that never reached
+    // the server (made offline), keep them and upload — don't let the pull wipe
+    // them. Otherwise the server is the source of truth.
+    if (hasPending()) {
+      DB.load();
+      registerSync();
+      mountAccount();
+      onReady();
+      pushNow();                 // upload the offline changes
+    } else {
+      DB.replaceState(serverState);
+      registerSync();
+      mountAccount();
+      setSync("synced");
+      onReady();
+      // Ensure a brand-new account persists its seeded library server-side.
+      if (isNew || !serverState.exercises) { markPending(); pushNow(); }
+    }
   }
 
   // Offline start from cached per-user data (session cookie/token present but network down).
   function offlineStart() {
     const payload = decodeToken(token) || {};
-    if (payload.uid != null) DB.setCacheKey("gymandjam.v1.u" + payload.uid);
+    if (payload.uid != null) { userId = payload.uid; DB.setCacheKey("gymandjam.v1.u" + payload.uid); }
     username = payload.username || payload.email;
     DB.load();
     registerSync();
@@ -270,9 +307,20 @@
   /* ---------- boot ---------- */
   async function init(opts) {
     onReady = (opts && opts.onReady) || function () {};
+    try { token = localStorage.getItem(TOKEN_KEY); } catch (_) { token = null; }
+
     // Detect backend
     let health = null;
     try { health = await api("/api/health"); } catch (_) { health = null; }
+
+    // Backend exists but is unreachable right now (offline) and we hold a valid
+    // session → start from the per-user local cache instead of dropping to an
+    // account-less local mode. Pending edits flush when the network returns.
+    if (health === null && token && decodeToken(token)) {
+      mode = "backend";
+      offlineStart();
+      return;
+    }
 
     if (!health || !health.auth) {
       mode = "local";
@@ -281,7 +329,6 @@
     }
 
     mode = "backend";
-    try { token = localStorage.getItem(TOKEN_KEY); } catch (_) { token = null; }
 
     // Ask the server who we are — works via the session cookie even if
     // localStorage was wiped (iOS home-screen PWAs do this on relaunch).
@@ -297,5 +344,5 @@
     else showAuthScreen();
   }
 
-  global.Auth = { init, logout, api, get mode() { return mode; } };
+  global.Auth = { init, logout, api, get mode() { return mode; }, get uid() { return userId; } };
 })(window);
