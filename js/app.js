@@ -15,6 +15,7 @@
   let foodWeekStart = null; // Monday of the week shown in the weekly view
   let statsExercise = null; // selected exercise id for strength progression chart
   let statsTab = "fuerza";  // "fuerza" | "cardio"
+  let heatWeeks = 26;       // consistency heatmap window (26 = 6 months, 53 = 1 year)
   let cardioExercise = null; // selected exercise id for cardio pace chart
   let libFilter = "all";
   let libSearch = "";
@@ -1409,6 +1410,7 @@
           <h1>Estadísticas</h1>
           <p class="subtitle">Tu rendimiento de un vistazo. Los números no mienten.</p>
         </div>
+        ${heatmapCard()}
         <div class="seg" id="statsSeg">
           <button class="seg-btn ${statsTab === "fuerza" ? "is-active" : ""}" data-tab="fuerza">Fuerza</button>
           <button class="seg-btn ${statsTab === "cardio" ? "is-active" : ""}" data-tab="cardio">Cardio</button>
@@ -1416,6 +1418,7 @@
         <div id="statsBody"></div>
       </div>`;
 
+    bindHeatmap();
     $$("#statsSeg .seg-btn").forEach((b) => b.addEventListener("click", () => {
       if (statsTab === b.dataset.tab) return;
       statsTab = b.dataset.tab;
@@ -1432,8 +1435,10 @@
         <div class="stat-grid">
           ${statCard("Volumen total", fmtNum(stats.totalVolume), "kg movidos")}
           ${statCard("Entrenos", stats.count, "sesiones", stats.weekDelta)}
+          ${statCard("Sesiones / sem", fmtNum(stats.sessionsPerWeek), "últimas 4 sem")}
           ${statCard("Racha actual", computeStreak(), "días seguidos")}
           ${statCard("Media / sesión", fmtNum(stats.avgVolume), "kg volumen")}
+          ${statCard("Series totales", fmtNum(stats.totalSets), "de fuerza")}
         </div>
 
         ${lastWorkoutComparisonCard()}
@@ -1441,13 +1446,13 @@
         <div class="chart-grid">
           <div class="card chart-card">
             <div class="chart-head"><h3>Volumen por sesión</h3><span class="hint">Últimas ${stats.volumeSeries.length} sesiones</span></div>
-            <div class="chart-wrap">${Charts.lineChart(stats.volumeSeries, { color: "#e0451f", color2: "#c07a1e" })}</div>
+            <div class="chart-wrap">${Charts.lineChart(stats.volumeSeries, { color: "#e0451f", color2: "#c07a1e", unit: "kg" })}</div>
           </div>
 
           <div class="card chart-card">
             <div class="chart-head"><h3>Reparto por grupo</h3><span class="hint">Series por músculo</span></div>
             <div class="row wrap" style="gap:18px;align-items:center;justify-content:center">
-              <div style="max-width:220px;flex:1;min-width:180px">${Charts.donutChart(stats.groupDist, { centerLabel: String(stats.totalSets), centerSub: "series" })}</div>
+              <div style="max-width:220px;flex:1;min-width:180px">${Charts.donutChart(stats.groupDist, { centerLabel: String(stats.totalSets), centerSub: "series", unit: "series" })}</div>
               <div class="legend" style="flex-direction:column;gap:8px">${stats.groupDist.map((d) => `<div class="legend-item"><span class="legend-dot" style="background:${d.color}"></span><b>${d.label}</b> · ${d.value} series</div>`).join("")}</div>
             </div>
           </div>
@@ -1457,27 +1462,29 @@
               <h3>Progresión de fuerza</h3>
               <select class="select select-inline" id="progExercise">${stats.exerciseOptions}</select>
             </div>
-            <div class="chart-wrap" id="progChart">${Charts.lineChart(stats.progSeries, { color: "#2e7d46", color2: "#2f6690" })}</div>
+            <div class="chart-wrap" id="progChart">${Charts.lineChart(stats.progSeries, { color: "#2e7d46", color2: "#2f6690", unit: "kg" })}</div>
             <div class="legend"><div class="legend-item"><span class="legend-dot" style="background:#2e7d46"></span>1RM estimado (Epley)</div></div>
           </div>
 
           <div class="card chart-card">
             <div class="chart-head"><h3>Volumen semanal</h3><span class="hint">Últimas 8 semanas</span></div>
-            <div class="chart-wrap">${Charts.barChart(stats.weeklyVolume, { color: "#2f6690" })}</div>
+            <div class="chart-wrap">${Charts.barChart(stats.weeklyVolume, { color: "#2f6690", unit: "kg" })}</div>
           </div>
         </div>
 
         <div class="card mt-24">
           <div class="section-title mb-16">Records personales <span class="count-pill">${stats.records.length}</span></div>
-          ${stats.records.length ? stats.records.map((r, i) => `
+          ${stats.records.length ? stats.records.map((r, i) => {
+            const recent = r.date && daysBetween(todayISO(), r.date) <= 30;
+            return `
             <div class="record-row">
               <div class="record-rank ${i < 3 ? "top" : ""}">${i + 1}</div>
               <div>
-                <div class="record-name">${escapeHtml(r.name)}</div>
+                <div class="record-name">${escapeHtml(r.name)}${recent ? ' <span class="pr-recent">nuevo</span>' : ""}</div>
                 <div class="record-meta">${r.group} · ${r.bestReps} reps · 1RM est. ${fmtNum(r.oneRM)} kg</div>
               </div>
               <div class="record-val"><b>${fmtNum(r.maxWeight)} kg</b><span>mejor marca</span></div>
-            </div>`).join("") : '<div class="text-dim">Registra más series para ver tus records.</div>'}
+            </div>`; }).join("") : '<div class="text-dim">Registra más series para ver tus records.</div>'}
         </div>
 
         ${trainedYearsCard()}`;
@@ -1487,7 +1494,7 @@
       sel.value = statsExercise || sel.value;
       sel.addEventListener("change", () => {
         statsExercise = sel.value;
-        $("#progChart").innerHTML = Charts.lineChart(progressionSeries(sel.value), { color: "#2e7d46", color2: "#2f6690" });
+        $("#progChart").innerHTML = Charts.lineChart(progressionSeries(sel.value), { color: "#2e7d46", color2: "#2f6690", unit: "kg" });
       });
     }
   }
@@ -1513,13 +1520,13 @@
         <div class="chart-grid">
           <div class="card chart-card">
             <div class="chart-head"><h3>Distancia por sesión</h3><span class="hint">km</span></div>
-            <div class="chart-wrap">${Charts.lineChart(cs.distanceSeries, { color: "#a5324a", color2: "#c07a1e" })}</div>
+            <div class="chart-wrap">${Charts.lineChart(cs.distanceSeries, { color: "#a5324a", color2: "#c07a1e", unit: "km" })}</div>
           </div>
 
           <div class="card chart-card">
             <div class="chart-head"><h3>Reparto por actividad</h3><span class="hint">${cs.useKm ? "por distancia" : "por tiempo"}</span></div>
             <div class="row wrap" style="gap:18px;align-items:center;justify-content:center">
-              <div style="max-width:220px;flex:1;min-width:180px">${Charts.donutChart(cs.activityDist, { centerLabel: cs.useKm ? fmtNum(Math.round(cs.totalKm)) : String(Math.round(cs.totalMin)), centerSub: cs.useKm ? "km" : "min" })}</div>
+              <div style="max-width:220px;flex:1;min-width:180px">${Charts.donutChart(cs.activityDist, { centerLabel: cs.useKm ? fmtNum(Math.round(cs.totalKm)) : String(Math.round(cs.totalMin)), centerSub: cs.useKm ? "km" : "min", unit: cs.useKm ? "km" : "min" })}</div>
               <div class="legend" style="flex-direction:column;gap:8px">${cs.activityDist.map((d) => `<div class="legend-item"><span class="legend-dot" style="background:${d.color}"></span><b>${escapeHtml(d.label)}</b> · ${fmtNum(d.value)} ${cs.useKm ? "km" : "min"}</div>`).join("")}</div>
             </div>
           </div>
@@ -1529,13 +1536,13 @@
               <h3>Progresión de ritmo</h3>
               <select class="select select-inline" id="paceExercise">${cs.exerciseOptions}</select>
             </div>
-            <div class="chart-wrap" id="paceChart">${Charts.lineChart(cs.paceSeries, { color: "#2f6690", color2: "#1f8a80" })}</div>
+            <div class="chart-wrap" id="paceChart">${Charts.lineChart(cs.paceSeries, { color: "#2f6690", color2: "#1f8a80", unit: "min/km" })}</div>
             <div class="legend"><div class="legend-item"><span class="legend-dot" style="background:#2f6690"></span>min/km · cuanto más bajo, mejor ↓</div></div>
           </div>
 
           <div class="card chart-card">
             <div class="chart-head"><h3>Distancia semanal</h3><span class="hint">Últimas 8 semanas · km</span></div>
-            <div class="chart-wrap">${Charts.barChart(cs.weeklyDistance, { color: "#a5324a" })}</div>
+            <div class="chart-wrap">${Charts.barChart(cs.weeklyDistance, { color: "#a5324a", unit: "km" })}</div>
           </div>
         </div>
 
@@ -1561,7 +1568,7 @@
       sel.value = cardioExercise || sel.value;
       sel.addEventListener("change", () => {
         cardioExercise = sel.value;
-        $("#paceChart").innerHTML = Charts.lineChart(cardioPaceSeries(sel.value), { color: "#2f6690", color2: "#1f8a80" });
+        $("#paceChart").innerHTML = Charts.lineChart(cardioPaceSeries(sel.value), { color: "#2f6690", color2: "#1f8a80", unit: "min/km" });
       });
     }
   }
@@ -1625,7 +1632,11 @@
     // records
     const records = computeRecords(asc);
 
-    return { totalVolume, count, avgVolume, totalSets, volumeSeries, groupDist, weeklyVolume, weekDelta, exerciseOptions, progSeries, records };
+    // training frequency over the last 4 weeks (any workout counts)
+    const cutoff = isoOf(new Date(Date.now() - 27 * 86400000));
+    const sessionsPerWeek = Math.round((asc.filter((w) => w.date >= cutoff).length / 4) * 10) / 10;
+
+    return { totalVolume, count, avgVolume, totalSets, volumeSeries, groupDist, weeklyVolume, weekDelta, exerciseOptions, progSeries, records, sessionsPerWeek };
   }
 
   function progressionSeries(exerciseId) {
@@ -1819,9 +1830,9 @@
         const wgt = Number(s.weight) || 0, reps = Number(s.reps) || 0;
         if (!reps) return;
         const orm = DB.estimate1RM(wgt, reps);
-        if (!map[en.exerciseId]) map[en.exerciseId] = { id: en.exerciseId, name: ex.name, group: G[ex.group].name, maxWeight: 0, bestReps: 0, oneRM: 0 };
+        if (!map[en.exerciseId]) map[en.exerciseId] = { id: en.exerciseId, name: ex.name, group: G[ex.group].name, maxWeight: 0, bestReps: 0, oneRM: 0, date: null };
         const rec = map[en.exerciseId];
-        if (wgt > rec.maxWeight) { rec.maxWeight = wgt; rec.bestReps = reps; }
+        if (wgt > rec.maxWeight) { rec.maxWeight = wgt; rec.bestReps = reps; rec.date = w.date; }
         if (orm > rec.oneRM) rec.oneRM = orm;
       });
     }));
@@ -1945,6 +1956,45 @@
       <div class="cmp-summary">${summary}</div>
       <div class="cmp-list">${rows}</div>
     </div>`;
+  }
+
+  // Per-day training load (total sets, strength + cardio) for the heatmap, so
+  // every training day lights up regardless of whether weight was moved.
+  function trainingHeatData() {
+    const byDay = {};
+    DB.get().workouts.forEach((w) => {
+      if (!w.date) return;
+      byDay[w.date] = (byDay[w.date] || 0) + DB.workoutSetCount(w);
+    });
+    return Object.entries(byDay).map(([date, value]) => ({ date, value }));
+  }
+
+  function heatmapCard() {
+    if (!DB.get().workouts.length) return "";
+    const legend = `<div class="heat-legend"><span>menos</span>${Charts.heatScale().map((c) => `<span class="hl-swatch" style="background:${c}"></span>`).join("")}<span>más</span></div>`;
+    return `<div class="card chart-card" id="heatCard">
+      <div class="chart-head">
+        <h3>Constancia</h3>
+        <div class="seg seg-sm" id="heatSeg">
+          <button class="seg-btn ${heatWeeks === 26 ? "is-active" : ""}" data-weeks="26">6 meses</button>
+          <button class="seg-btn ${heatWeeks === 53 ? "is-active" : ""}" data-weeks="53">1 año</button>
+        </div>
+      </div>
+      <div class="heatmap-wrap">${Charts.heatmap(trainingHeatData(), { weeks: heatWeeks, unit: "series" })}</div>
+      ${legend}
+    </div>`;
+  }
+  function bindHeatmap() {
+    const seg = $("#heatSeg");
+    if (!seg) return;
+    seg.querySelectorAll(".seg-btn").forEach((b) => b.addEventListener("click", () => {
+      const wk = +b.dataset.weeks;
+      if (wk === heatWeeks) return;
+      heatWeeks = wk;
+      seg.querySelectorAll(".seg-btn").forEach((x) => x.classList.toggle("is-active", +x.dataset.weeks === wk));
+      const wrap = $("#heatCard .heatmap-wrap");
+      if (wrap) wrap.innerHTML = Charts.heatmap(trainingHeatData(), { weeks: heatWeeks, unit: "series" });
+    }));
   }
 
   // Total distinct training days per calendar year (current year highlighted,
