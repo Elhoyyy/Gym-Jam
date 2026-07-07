@@ -3111,6 +3111,8 @@
     draft = loadDraft() || newDraft();
     // Re-render current view when the theme changes (recolors charts).
     global.__onThemeChange = function () { render(); };
+    // Let the auth layer re-render the current view after a manual sync pull.
+    global.__rerender = function () { render(); };
 
     let savedWs = "train";
     try { if (localStorage.getItem("gymandjam.workspace") === "food") savedWs = "food"; } catch (_) {}

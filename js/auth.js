@@ -8,6 +8,7 @@
   "use strict";
 
   const TOKEN_KEY = "gymandjam.token";
+  const LOGGEDOUT_KEY = "gymandjam.loggedOut";   // set on explicit logout; forces the login screen
   // Lowercase + strip diacritics ("ñ" → "n", "josé" → "jose"). Must mirror the
   // server's normUsername so login and register agree on the stored name.
   const normUsername = (v) => String(v || "").trim().toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
@@ -80,6 +81,23 @@
   // Retry unsynced changes the moment the network comes back.
   function flushWhenOnline() { if (mode === "backend" && hasPending()) pushNow(); }
   window.addEventListener("online", flushWhenOnline);
+
+  // Manual "sync now" — iOS PWAs don't always fire the `online` event, so give
+  // the user a button. Pushes pending edits; if none, pulls the latest state.
+  async function forceSync() {
+    if (mode !== "backend") return;
+    setSync("saving");
+    try { await api("/api/me", { auth: true }); }
+    catch (err) { if (err.status === 401) return forceLogout(); setSync("offline"); return; }
+    if (hasPending()) { await pushNow(); return; }
+    try {
+      const data = await api("/api/state", { method: "GET", auth: true });
+      DB.replaceState(data.state || {});
+      setSync("synced");
+      if (typeof global.__rerender === "function") global.__rerender();
+    } catch (_) { setSync("offline"); }
+  }
+
   function setSync(s) {
     syncState = s;
     const map = {
@@ -92,10 +110,13 @@
     document.querySelectorAll(".js-sync").forEach((el) => {
       el.innerHTML = `<span class="sync-dot" style="background:${color}"></span>${label}`;
     });
+    document.querySelectorAll(".js-sync-refresh").forEach((el) => el.classList.toggle("spin", s === "saving"));
   }
 
   /* ---------- account box (sidebar) ---------- */
   const LOGOUT_SVG = '<svg viewBox="0 0 24 24"><path d="M15 12H3m0 0l4-4m-4 4l4 4M14 4h5a2 2 0 012 2v12a2 2 0 01-2 2h-5" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const REFRESH_SVG = '<svg viewBox="0 0 24 24" fill="none"><path d="M21 12a9 9 0 0 1-15 6.7L3 16M3 12a9 9 0 0 1 15-6.7L21 8M21 4v4h-4M3 20v-4h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const SYNC_LINE = `<span class="sync-line"><span class="sync-status js-sync"><span class="sync-dot"></span>Sincronizado</span><button class="sync-refresh js-sync-refresh" type="button" title="Sincronizar ahora" aria-label="Sincronizar ahora">${REFRESH_SVG}</button></span>`;
 
   function mountAccount() {
     const initial = (username || "?").charAt(0).toUpperCase();
@@ -107,12 +128,14 @@
             <span class="account-avatar">${initial}</span>
             <div class="account-meta">
               <span class="account-email" title="${username || ""}">${username || ""}</span>
-              <span class="sync-status js-sync"><span class="sync-dot"></span>Sincronizado</span>
+              ${SYNC_LINE}
             </div>
           </div>
           <button class="icon-btn" id="logoutBtn" title="Cerrar sesión">${LOGOUT_SVG}</button>
         </div>`;
       box.querySelector("#logoutBtn").addEventListener("click", logout);
+      const rf = box.querySelector(".js-sync-refresh");
+      if (rf) rf.addEventListener("click", forceSync);
     }
     mountMobileAccount(initial);
     setSync(syncState === "idle" ? "synced" : syncState);
@@ -133,21 +156,29 @@
         <span class="account-avatar">${initial}</span>
         <div style="min-width:0">
           <div class="am-email">${username || ""}</div>
-          <div class="am-sync sync-status js-sync"><span class="sync-dot"></span>Sincronizado</div>
+          <div class="am-sync">${SYNC_LINE}</div>
         </div>
       </div>
       <button class="btn btn-ghost btn-block" id="logoutBtnM">${LOGOUT_SVG} Cerrar sesión</button>`;
     btn.onclick = (e) => { e.stopPropagation(); menu.classList.toggle("show"); };
     menu.querySelector("#logoutBtnM").addEventListener("click", logout);
+    const rfM = menu.querySelector(".js-sync-refresh");
+    if (rfM) rfM.addEventListener("click", (e) => { e.stopPropagation(); forceSync(); });
     document.addEventListener("click", (e) => {
       if (menu.classList.contains("show") && !menu.contains(e.target) && !btn.contains(e.target)) menu.classList.remove("show");
     });
   }
 
   async function logout() {
-    try { await api("/api/logout", { method: "POST" }); } catch (_) {}
+    // Mark the intent locally FIRST so the reload lands on the login screen even
+    // if we're offline (the HttpOnly cookie can't be cleared without the server).
+    try {
+      localStorage.setItem(LOGGEDOUT_KEY, "1");
+      localStorage.removeItem(TOKEN_KEY);
+      clearPending();
+    } catch (_) {}
     token = null;
-    try { localStorage.removeItem(TOKEN_KEY); } catch (_) {}
+    try { await api("/api/logout", { method: "POST" }); } catch (_) {}
     location.reload();
   }
   function forceLogout() {
@@ -252,6 +283,7 @@
 
   /* ---------- pull server state and start ---------- */
   async function enterApp(isNew, me) {
+    try { localStorage.removeItem(LOGGEDOUT_KEY); } catch (_) {}   // a real session clears the logout flag
     me = me || {};
     const uid = me.uid != null ? me.uid : (decodeToken(token) || {}).uid;
     if (uid != null) { userId = uid; DB.setCacheKey("gymandjam.v1.u" + uid); }
@@ -307,11 +339,17 @@
   /* ---------- boot ---------- */
   async function init(opts) {
     onReady = (opts && opts.onReady) || function () {};
-    try { token = localStorage.getItem(TOKEN_KEY); } catch (_) { token = null; }
+    let intentionalLogout = false;
+    try { intentionalLogout = localStorage.getItem(LOGGEDOUT_KEY) === "1"; } catch (_) {}
+    try { token = intentionalLogout ? null : localStorage.getItem(TOKEN_KEY); } catch (_) { token = null; }
 
     // Detect backend
     let health = null;
     try { health = await api("/api/health"); } catch (_) { health = null; }
+
+    // Explicit logout → always land on the login screen, ignoring any cookie
+    // session (the flag is cleared once a real login/register succeeds).
+    if (intentionalLogout) { mode = "backend"; showAuthScreen(); return; }
 
     // Backend exists but is unreachable right now (offline) and we hold a valid
     // session → start from the per-user local cache instead of dropping to an
