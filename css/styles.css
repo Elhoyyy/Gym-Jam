@@ -444,6 +444,29 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .heat-legend .hl-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
 #heatCard { margin-bottom: 22px; }   /* breathing room before the Fuerza/Cardio tabs */
 
+/* While logging out, keep the app shell hidden so the login screen doesn't
+   flash the previous UI (the class is set pre-paint and cleared on boot). */
+html.auth-pending .app-shell,
+html.auth-pending .topbar,
+html.auth-pending .mobile-nav,
+html.auth-pending .theme-toggle { display: none !important; }
+
+/* Profile / account sheet */
+.account-info.clickable { cursor: pointer; border-radius: 8px; margin: -4px; padding: 4px; transition: background 0.14s; }
+.account-info.clickable:hover { background: var(--surface-2); }
+.account-avatar.lg { width: 46px; height: 46px; font-size: 19px; flex-shrink: 0; }
+.profile-id { display: flex; align-items: center; gap: 13px; min-width: 0; }
+.profile-id h2 { font-size: 20px; }
+.profile-id p { font-size: 12.5px; color: var(--text-dim); }
+.profile-stats { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; margin: 6px 0 18px; }
+.profile-stats > div { padding: 13px 6px; text-align: center; border-right: 1px solid var(--border); }
+.profile-stats > div:last-child { border-right: none; }
+.profile-stats b { display: block; font-family: "Space Grotesk"; font-size: 21px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.profile-stats span { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+.profile-actions { display: flex; flex-direction: column; gap: 8px; }
+.profile-actions .btn { justify-content: flex-start; }
+.profile-actions .btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+
 /* Manual "sync now" control next to the sync status */
 .sync-line { display: inline-flex; align-items: center; gap: 6px; }
 .sync-refresh { background: none; border: none; padding: 2px; margin: 0; color: var(--text-faint); cursor: pointer; display: inline-flex; border-radius: 4px; pointer-events: auto; }

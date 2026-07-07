@@ -3104,9 +3104,150 @@
   }
 
   /* ============================================================
+     PROFILE / ACCOUNT
+     ============================================================ */
+  function fmtLongDate(ms) {
+    return ms ? new Date(ms).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }) : "—";
+  }
+
+  function openProfile() {
+    const A = global.Auth || {};
+    const uname = A.username || "";
+    const initial = (uname || "?").charAt(0).toUpperCase();
+    const workouts = DB.get().workouts || [];
+    const days = new Set(workouts.map((w) => w.date).filter(Boolean)).size;
+    const totalVol = workouts.reduce((a, w) => a + DB.workoutVolume(w), 0);
+    const backend = isBackend();
+
+    openModal(`
+      <div class="modal-head">
+        <div class="profile-id">
+          <span class="account-avatar lg">${initial}</span>
+          <div style="min-width:0">
+            <h2 style="margin:0">${escapeHtml(uname) || "Perfil"}</h2>
+            <p style="margin:2px 0 0">${backend ? "Miembro desde " + fmtLongDate(A.createdAt) : "Modo local (sin cuenta)"}</p>
+          </div>
+        </div>
+        <button class="icon-btn" id="closePf"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="profile-stats">
+        <div><b>${workouts.length}</b><span>entrenos</span></div>
+        <div><b>${days}</b><span>días</span></div>
+        <div><b>${computeStreak()}</b><span>racha</span></div>
+        <div><b>${Charts.fmt(totalVol)}</b><span>kg vol</span></div>
+      </div>
+      <div class="profile-actions">
+        ${backend ? `<button class="btn btn-ghost btn-block" id="pfSync"><svg viewBox="0 0 24 24" fill="none"><path d="M21 12a9 9 0 0 1-15 6.7L3 16M3 12a9 9 0 0 1 15-6.7L21 8M21 4v4h-4M3 20v-4h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Sincronizar ahora</button>` : ""}
+        <button class="btn btn-ghost btn-block" id="pfExport"><svg viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4M4 19h16" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Exportar copia de seguridad</button>
+        <button class="btn btn-ghost btn-block" id="pfImport"><svg viewBox="0 0 24 24"><path d="M12 15V3M8 7l4-4 4 4M4 19h16" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Importar copia</button>
+        ${backend ? `<button class="btn btn-ghost btn-block" id="pfPass"><svg viewBox="0 0 24 24"><path d="M6 10V8a6 6 0 1112 0v2M5 10h14v10H5z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Cambiar contraseña</button>` : ""}
+        ${backend ? `<button class="btn btn-ghost btn-block" id="pfLogout"><svg viewBox="0 0 24 24"><path d="M15 12H3m0 0l4-4m-4 4l4 4M14 4h5a2 2 0 012 2v12a2 2 0 01-2 2h-5" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Cerrar sesión</button>` : ""}
+        ${backend ? `<button class="btn btn-danger btn-block" id="pfDelete" style="margin-top:6px">Borrar cuenta</button>` : ""}
+      </div>
+    `);
+    $("#closePf").addEventListener("click", closeModal);
+    $("#pfExport").addEventListener("click", exportBackup);
+    $("#pfImport").addEventListener("click", confirmImportBackup);
+    const sy = $("#pfSync"); if (sy) sy.addEventListener("click", () => { if (A.forceSync) A.forceSync(); });
+    const pp = $("#pfPass"); if (pp) pp.addEventListener("click", openChangePassword);
+    const pl = $("#pfLogout"); if (pl) pl.addEventListener("click", () => { if (A.logout) A.logout(); });
+    const pd = $("#pfDelete"); if (pd) pd.addEventListener("click", openDeleteAccount);
+  }
+
+  function exportBackup() {
+    try {
+      const blob = new Blob([DB.exportJSON()], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `gymandjam-${todayISO()}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast("Copia exportada", "success");
+    } catch (_) { toast("No se pudo exportar", "error"); }
+  }
+
+  // Importing replaces ALL data, so confirm first.
+  function confirmImportBackup() {
+    openModal(`
+      <div class="modal-head"><div><h2>Importar copia</h2><p>Reemplazará <b>todos</b> tus datos actuales por los del archivo. No se puede deshacer.</p></div></div>
+      <div class="modal-actions"><button class="btn btn-ghost" id="ciCancel">Cancelar</button><button class="btn btn-primary" id="ciPick">Elegir archivo…</button></div>
+    `);
+    $("#ciCancel").addEventListener("click", openProfile);
+    $("#ciPick").addEventListener("click", () => {
+      const input = document.createElement("input");
+      input.type = "file"; input.accept = "application/json,.json";
+      input.addEventListener("change", () => {
+        const f = input.files && input.files[0];
+        if (!f) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            DB.importJSON(String(reader.result || ""));
+            DB.save();                     // persist + mark pending → syncs when online
+            toast("Copia importada", "success");
+            location.reload();             // clean reset with the new data
+          } catch (_) { toast("Archivo no válido", "error"); }
+        };
+        reader.readAsText(f);
+      });
+      input.click();
+    });
+  }
+
+  function openChangePassword() {
+    openModal(`
+      <div class="modal-head"><div><h2>Cambiar contraseña</h2></div>
+        <button class="icon-btn" id="cpClose"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="modal-field"><label>Contraseña actual</label><input class="input" type="password" id="cpCur" autocomplete="current-password"></div>
+      <div class="modal-field"><label>Nueva contraseña</label><input class="input" type="password" id="cpNew" autocomplete="new-password" placeholder="Mínimo 6 caracteres"></div>
+      <div class="modal-field"><label>Repite la nueva</label><input class="input" type="password" id="cpNew2" autocomplete="new-password"></div>
+      <div class="auth-error" id="cpErr" hidden></div>
+      <div class="modal-actions"><button class="btn btn-ghost" id="cpCancel">Cancelar</button><button class="btn btn-primary" id="cpSave">Guardar</button></div>
+    `);
+    const err = $("#cpErr"), showErr = (m) => { err.textContent = m; err.hidden = false; };
+    const submit = async () => {
+      const cur = $("#cpCur").value, n1 = $("#cpNew").value, n2 = $("#cpNew2").value;
+      if (n1.length < 6) return showErr("La nueva contraseña debe tener al menos 6 caracteres.");
+      if (n1 !== n2) return showErr("Las contraseñas nuevas no coinciden.");
+      const btn = $("#cpSave"); btn.disabled = true; btn.textContent = "Guardando…";
+      try { await global.Auth.changePassword(cur, n1); closeModal(); toast("Contraseña actualizada", "success"); }
+      catch (e) { showErr(e.message || "No se pudo cambiar."); btn.disabled = false; btn.textContent = "Guardar"; }
+    };
+    $("#cpClose").addEventListener("click", openProfile);
+    $("#cpCancel").addEventListener("click", openProfile);
+    $("#cpSave").addEventListener("click", submit);
+    $("#cpNew2").addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+    $("#cpCur").focus();
+  }
+
+  function openDeleteAccount() {
+    openModal(`
+      <div class="modal-head"><div><h2>Borrar cuenta</h2><p>Acción <b>permanente</b>: se elimina tu cuenta y todos tus datos del servidor.</p></div></div>
+      <div class="modal-field"><label>Escribe tu contraseña para confirmar</label><input class="input" type="password" id="daPass" autocomplete="current-password"></div>
+      <div class="auth-error" id="daErr" hidden></div>
+      <div class="modal-actions"><button class="btn btn-ghost" id="daCancel">Cancelar</button><button class="btn btn-danger" id="daGo">Borrar mi cuenta</button></div>
+    `);
+    const err = $("#daErr");
+    const submit = async () => {
+      const pw = $("#daPass").value;
+      if (!pw) { err.textContent = "Introduce tu contraseña."; err.hidden = false; return; }
+      const btn = $("#daGo"); btn.disabled = true; btn.textContent = "Borrando…";
+      try { await global.Auth.deleteAccount(pw); }   // reloads to the login screen on success
+      catch (e) { err.textContent = e.message || "No se pudo borrar."; err.hidden = false; btn.disabled = false; btn.textContent = "Borrar mi cuenta"; }
+    };
+    $("#daCancel").addEventListener("click", openProfile);
+    $("#daGo").addEventListener("click", submit);
+    $("#daPass").focus();
+  }
+
+  global.__openProfile = openProfile;
+
+  /* ============================================================
      BOOT
      ============================================================ */
   function boot() {
+    document.documentElement.classList.remove("auth-pending");   // reveal the app shell
     DB.load();
     draft = loadDraft() || newDraft();
     // Re-render current view when the theme changes (recolors charts).

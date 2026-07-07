@@ -16,6 +16,7 @@
   let token = null;
   let username = null;
   let userId = null;            // current account id (namespaces per-user local data)
+  let createdAt = null;         // account creation timestamp (ms), for the profile
   let onReady = function () {};
   let syncTimer = null;
   let syncState = "idle";       // idle | saving | synced | offline
@@ -135,38 +136,23 @@
         </div>`;
       box.querySelector("#logoutBtn").addEventListener("click", logout);
       const rf = box.querySelector(".js-sync-refresh");
-      if (rf) rf.addEventListener("click", forceSync);
+      if (rf) rf.addEventListener("click", (e) => { e.stopPropagation(); forceSync(); });
+      const info = box.querySelector(".account-info");
+      if (info) { info.classList.add("clickable"); info.addEventListener("click", () => { if (global.__openProfile) global.__openProfile(); }); }
     }
     mountMobileAccount(initial);
     setSync(syncState === "idle" ? "synced" : syncState);
   }
 
-  // Mobile: reveal the top-bar account button and build its dropdown menu.
+  // Mobile: the top-bar avatar opens the full profile sheet (which holds the
+  // sync status, account actions and logout).
   function mountMobileAccount(initial) {
     const btn = document.getElementById("accountBtn");
     if (!btn) return;
     btn.hidden = false;
     const av = document.getElementById("accountBtnAvatar");
     if (av) av.textContent = initial;
-
-    let menu = document.getElementById("accountMenu");
-    if (!menu) { menu = document.createElement("div"); menu.className = "account-menu"; menu.id = "accountMenu"; document.body.appendChild(menu); }
-    menu.innerHTML = `
-      <div class="am-head">
-        <span class="account-avatar">${initial}</span>
-        <div style="min-width:0">
-          <div class="am-email">${username || ""}</div>
-          <div class="am-sync">${SYNC_LINE}</div>
-        </div>
-      </div>
-      <button class="btn btn-ghost btn-block" id="logoutBtnM">${LOGOUT_SVG} Cerrar sesión</button>`;
-    btn.onclick = (e) => { e.stopPropagation(); menu.classList.toggle("show"); };
-    menu.querySelector("#logoutBtnM").addEventListener("click", logout);
-    const rfM = menu.querySelector(".js-sync-refresh");
-    if (rfM) rfM.addEventListener("click", (e) => { e.stopPropagation(); forceSync(); });
-    document.addEventListener("click", (e) => {
-      if (menu.classList.contains("show") && !menu.contains(e.target) && !btn.contains(e.target)) menu.classList.remove("show");
-    });
+    btn.onclick = (e) => { e.stopPropagation(); if (global.__openProfile) global.__openProfile(); };
   }
 
   async function logout() {
@@ -177,6 +163,9 @@
       localStorage.removeItem(TOKEN_KEY);
       clearPending();
     } catch (_) {}
+    // Hide the app immediately so the click feels instant (no UI lingering
+    // while the reload happens).
+    try { document.documentElement.classList.add("auth-pending"); } catch (_) {}
     token = null;
     try { await api("/api/logout", { method: "POST" }); } catch (_) {}
     location.reload();
@@ -268,7 +257,7 @@
         token = data.token;
         username = data.username;
         try { localStorage.setItem(TOKEN_KEY, token); } catch (_) {}
-        await enterApp(tab === "register", { uid: data.uid, username: data.username });
+        await enterApp(tab === "register", { uid: data.uid, username: data.username, createdAt: data.createdAt });
         el.remove();
       } catch (err) {
         showError(err.message || "No se pudo completar. Inténtalo de nuevo.");
@@ -288,6 +277,7 @@
     const uid = me.uid != null ? me.uid : (decodeToken(token) || {}).uid;
     if (uid != null) { userId = uid; DB.setCacheKey("gymandjam.v1.u" + uid); }
     username = me.username || username || (decodeToken(token) || {}).username;
+    if (me.createdAt != null) createdAt = me.createdAt;
 
     let serverState = {};
     try {
@@ -343,13 +333,14 @@
     try { intentionalLogout = localStorage.getItem(LOGGEDOUT_KEY) === "1"; } catch (_) {}
     try { token = intentionalLogout ? null : localStorage.getItem(TOKEN_KEY); } catch (_) { token = null; }
 
+    // Explicit logout → go straight to the login screen, ignoring any cookie
+    // session. Done BEFORE the health round-trip so it's instant (no flash of
+    // the app shell). The flag is cleared once a real login/register succeeds.
+    if (intentionalLogout) { mode = "backend"; showAuthScreen(); return; }
+
     // Detect backend
     let health = null;
     try { health = await api("/api/health"); } catch (_) { health = null; }
-
-    // Explicit logout → always land on the login screen, ignoring any cookie
-    // session (the flag is cleared once a real login/register succeeds).
-    if (intentionalLogout) { mode = "backend"; showAuthScreen(); return; }
 
     // Backend exists but is unreachable right now (offline) and we hold a valid
     // session → start from the per-user local cache instead of dropping to an
@@ -382,5 +373,31 @@
     else showAuthScreen();
   }
 
-  global.Auth = { init, logout, api, get mode() { return mode; }, get uid() { return userId; } };
+  function changePassword(current, password) {
+    return api("/api/password", { method: "POST", body: { current, password }, auth: true });
+  }
+  async function deleteAccount(password) {
+    await api("/api/account/delete", { method: "POST", body: { password }, auth: true });
+    // Account is gone → wipe the local session and this device's cached data.
+    try {
+      localStorage.setItem(LOGGEDOUT_KEY, "1");
+      localStorage.removeItem(TOKEN_KEY);
+      clearPending();
+      if (userId != null) {
+        localStorage.removeItem("gymandjam.v1.u" + userId);
+        localStorage.removeItem("gymandjam.draft.u" + userId);
+      }
+    } catch (_) {}
+    try { document.documentElement.classList.add("auth-pending"); } catch (_) {}
+    token = null;
+    location.reload();
+  }
+
+  global.Auth = {
+    init, logout, api, changePassword, deleteAccount, forceSync,
+    get mode() { return mode; },
+    get uid() { return userId; },
+    get username() { return username; },
+    get createdAt() { return createdAt; },
+  };
 })(window);

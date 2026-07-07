@@ -63,6 +63,9 @@ const q = {
   byId:    db.prepare("SELECT * FROM users WHERE id = ?"),
   insert:  db.prepare("INSERT INTO users (username, salt, hash, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"),
   saveState: db.prepare("UPDATE users SET state = ?, updated_at = ? WHERE id = ?"),
+  setPassword: db.prepare("UPDATE users SET salt = ?, hash = ?, updated_at = ? WHERE id = ?"),
+  deleteUser:  db.prepare("DELETE FROM users WHERE id = ?"),
+  deleteSharesOf: db.prepare("DELETE FROM shares WHERE owner = ?"),
   insertShare: db.prepare("INSERT INTO shares (code, template, owner, created_at) VALUES (?, ?, ?, ?)"),
   getShare:    db.prepare("SELECT * FROM shares WHERE code = ?"),
   bumpShare:   db.prepare("UPDATE shares SET uses = uses + 1 WHERE code = ?"),
@@ -293,7 +296,7 @@ async function handleApi(req, res, url) {
     rlReset(clientIp(req));
     const token = issueToken(user);
     setSessionCookie(req, res, token);
-    return sendJSON(res, 201, { token, username: user.username, uid: user.id });
+    return sendJSON(res, 201, { token, username: user.username, uid: user.id, createdAt: user.created_at });
   }
 
   if (path === "/api/login" && req.method === "POST") {
@@ -309,7 +312,7 @@ async function handleApi(req, res, url) {
     rlReset(ip);
     const token = issueToken(user);
     setSessionCookie(req, res, token);
-    return sendJSON(res, 200, { token, username: user.username, uid: user.id });
+    return sendJSON(res, 200, { token, username: user.username, uid: user.id, createdAt: user.created_at });
   }
 
   // Who am I? (Bearer or session cookie). Lets the client restore the session
@@ -317,11 +320,49 @@ async function handleApi(req, res, url) {
   if (path === "/api/me" && req.method === "GET") {
     const user = authUser(req);
     if (!user) return sendJSON(res, 401, { error: "No autorizado" });
-    return sendJSON(res, 200, { username: user.username, uid: user.id });
+    return sendJSON(res, 200, { username: user.username, uid: user.id, createdAt: user.created_at });
   }
 
   if (path === "/api/logout" && req.method === "POST") {
     res.setHeader("Set-Cookie", "gj_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax");
+    return sendJSON(res, 200, { ok: true });
+  }
+
+  // Change password: requires the current password. Rate-limited so the
+  // "current password" field can't be brute-forced with a stolen session.
+  if (path === "/api/password" && req.method === "POST") {
+    const ip = clientIp(req);
+    if (rlBlocked(ip)) return sendJSON(res, 429, { error: "Demasiados intentos. Espera unos minutos." });
+    const user = authUser(req);
+    if (!user) return sendJSON(res, 401, { error: "No autorizado" });
+    const { current, password } = await readJSON(req);
+    if (!verifyPassword(String(current || ""), user.salt, user.hash)) {
+      rlFail(ip);
+      return sendJSON(res, 403, { error: "La contraseña actual no es correcta" });
+    }
+    if (String(password || "").length < 6) return sendJSON(res, 400, { error: "La nueva contraseña debe tener al menos 6 caracteres" });
+    const { salt, hash } = hashPassword(String(password));
+    q.setPassword.run(salt, hash, Date.now(), user.id);
+    rlReset(ip);
+    return sendJSON(res, 200, { ok: true });
+  }
+
+  // Delete account: requires the password. Removes the user and the routines
+  // they had shared, and clears the session cookie.
+  if (path === "/api/account/delete" && req.method === "POST") {
+    const ip = clientIp(req);
+    if (rlBlocked(ip)) return sendJSON(res, 429, { error: "Demasiados intentos. Espera unos minutos." });
+    const user = authUser(req);
+    if (!user) return sendJSON(res, 401, { error: "No autorizado" });
+    const { password } = await readJSON(req);
+    if (!verifyPassword(String(password || ""), user.salt, user.hash)) {
+      rlFail(ip);
+      return sendJSON(res, 403, { error: "Contraseña incorrecta" });
+    }
+    q.deleteSharesOf.run(user.username);
+    q.deleteUser.run(user.id);
+    res.setHeader("Set-Cookie", "gj_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax");
+    rlReset(ip);
     return sendJSON(res, 200, { ok: true });
   }
 

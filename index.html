@@ -28,6 +28,10 @@
       try {
         var t = localStorage.getItem("gymandjam.theme") || "light";
         document.documentElement.setAttribute("data-theme", t);
+        /* Just logged out → hide the app shell from the very first paint so the
+           login screen doesn't flash the previous UI. Removed once the app boots. */
+        if (localStorage.getItem("gymandjam.loggedOut") === "1")
+          document.documentElement.classList.add("auth-pending");
       } catch (e) {}
     })();
   </script>
