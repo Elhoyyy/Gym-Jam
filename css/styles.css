@@ -463,6 +463,8 @@ html.auth-pending .theme-toggle { display: none !important; }
 .profile-stats > div:last-child { border-right: none; }
 .profile-stats b { display: block; font-family: "Space Grotesk"; font-size: 21px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
 .profile-stats span { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+.profile-sync { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 14px; margin-bottom: 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+.profile-sync .sync-status { font-size: 13px; }
 .profile-actions { display: flex; flex-direction: column; gap: 8px; }
 .profile-actions .btn { justify-content: flex-start; }
 .profile-actions .btn svg { width: 18px; height: 18px; flex-shrink: 0; }

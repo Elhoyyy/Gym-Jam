@@ -3136,8 +3136,11 @@
         <div><b>${computeStreak()}</b><span>racha</span></div>
         <div><b>${Charts.fmt(totalVol)}</b><span>kg vol</span></div>
       </div>
+      ${backend ? `<div class="profile-sync">
+        <span class="sync-status js-sync"><span class="sync-dot"></span>Sincronizado</span>
+        <button class="btn btn-ghost btn-sm" id="pfSync"><svg viewBox="0 0 24 24" fill="none"><path d="M21 12a9 9 0 0 1-15 6.7L3 16M3 12a9 9 0 0 1 15-6.7L21 8M21 4v4h-4M3 20v-4h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Sincronizar</button>
+      </div>` : ""}
       <div class="profile-actions">
-        ${backend ? `<button class="btn btn-ghost btn-block" id="pfSync"><svg viewBox="0 0 24 24" fill="none"><path d="M21 12a9 9 0 0 1-15 6.7L3 16M3 12a9 9 0 0 1 15-6.7L21 8M21 4v4h-4M3 20v-4h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Sincronizar ahora</button>` : ""}
         <button class="btn btn-ghost btn-block" id="pfExport"><svg viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4M4 19h16" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Exportar copia de seguridad</button>
         <button class="btn btn-ghost btn-block" id="pfImport"><svg viewBox="0 0 24 24"><path d="M12 15V3M8 7l4-4 4 4M4 19h16" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Importar copia</button>
         ${backend ? `<button class="btn btn-ghost btn-block" id="pfPass"><svg viewBox="0 0 24 24"><path d="M6 10V8a6 6 0 1112 0v2M5 10h14v10H5z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Cambiar contraseña</button>` : ""}
@@ -3152,18 +3155,26 @@
     const pp = $("#pfPass"); if (pp) pp.addEventListener("click", openChangePassword);
     const pl = $("#pfLogout"); if (pl) pl.addEventListener("click", () => { if (A.logout) A.logout(); });
     const pd = $("#pfDelete"); if (pd) pd.addEventListener("click", openDeleteAccount);
+    if (A.paintSync) A.paintSync();   // reflect the real current status in the sheet
   }
 
   function exportBackup() {
-    try {
-      const blob = new Blob([DB.exportJSON()], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = `gymandjam-${todayISO()}.json`;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      toast("Copia exportada", "success");
-    } catch (_) { toast("No se pudo exportar", "error"); }
+    const btn = $("#pfExport");
+    const orig = btn ? btn.innerHTML : "";
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Preparando copia…'; }
+    // Brief "preparing" spinner before the download fires.
+    setTimeout(() => {
+      try {
+        const blob = new Blob([DB.exportJSON()], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = `gymandjam-${todayISO()}.json`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        toast("Copia exportada", "success");
+      } catch (_) { toast("No se pudo exportar", "error"); }
+      if (btn && btn.isConnected) { btn.disabled = false; btn.innerHTML = orig; }
+    }, 2000);
   }
 
   // Importing replaces ALL data, so confirm first.

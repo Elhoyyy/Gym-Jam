@@ -393,8 +393,12 @@
     location.reload();
   }
 
+  // Re-apply the current sync status to every .js-sync in the DOM (e.g. after
+  // opening the profile sheet, which mounts a fresh status element).
+  function paintSync() { setSync(syncState); }
+
   global.Auth = {
-    init, logout, api, changePassword, deleteAccount, forceSync,
+    init, logout, api, changePassword, deleteAccount, forceSync, paintSync,
     get mode() { return mode; },
     get uid() { return userId; },
     get username() { return username; },
