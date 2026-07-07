@@ -489,8 +489,11 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .bw-form-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
 /* min-width:0 lets the fields (and the wide native date input) actually shrink,
    otherwise they overflow and overlap on narrow screens. */
-.bw-form-row .modal-field { flex: 1 1 130px; min-width: 0; margin: 0; }
-.bw-form-row .modal-field .input { min-width: 0; width: 100%; }
+.bw-form-row .modal-field { flex: 1 1 130px; min-width: 0; max-width: 100%; margin: 0; }
+.bw-form-row .modal-field .input { min-width: 0; width: 100%; max-width: 100%; }
+/* iOS renders type=date with a fixed intrinsic width that ignores width:100%
+   and overflows the card; dropping the native appearance makes it obey. */
+.bw-form-row .input[type="date"] { -webkit-appearance: none; appearance: none; }
 .bw-form-row .btn { flex-shrink: 0; }
 .bw-hero { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 18px; }
 .bw-unit { font-size: 16px; color: var(--text-dim); font-weight: 600; letter-spacing: 0; }

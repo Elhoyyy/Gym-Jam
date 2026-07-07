@@ -180,15 +180,15 @@
         <form class="auth-form" id="authForm" autocomplete="on">
           <div class="modal-field">
             <label>Nombre de usuario</label>
-            <input class="input" type="text" id="authUser" placeholder="p. ej. eloylifter" required minlength="3" maxlength="20" autocomplete="username" autocapitalize="none" spellcheck="false">
+            <input class="input" type="text" id="authUser" name="username" placeholder="p. ej. eloylifter" required minlength="3" maxlength="20" autocomplete="username" autocapitalize="none" spellcheck="false">
           </div>
           <div class="modal-field">
             <label>Contraseña</label>
-            <input class="input" type="password" id="authPassword" placeholder="Mínimo 6 caracteres" required minlength="6" autocomplete="current-password">
+            <input class="input" type="password" id="authPassword" name="password" placeholder="Mínimo 6 caracteres" required minlength="6" autocomplete="current-password">
           </div>
           <div class="modal-field" id="confirmField" hidden>
             <label>Confirmar contraseña</label>
-            <input class="input" type="password" id="authConfirm" placeholder="Repite la contraseña" autocomplete="new-password">
+            <input class="input" type="password" id="authConfirm" name="confirm-password" placeholder="Repite la contraseña" autocomplete="new-password">
           </div>
           <div class="auth-error" id="authError" hidden></div>
           <button class="btn btn-primary btn-block" type="submit" id="authSubmit">Entrar</button>
