@@ -991,9 +991,12 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
   .view-head h1 { font-size: 25px; }
   .history-metrics { width: 100%; justify-content: flex-start; margin-left: 0; margin-top: 12px; }
   .history-top { flex-wrap: wrap; }
-  /* Peso corporal: Fecha + Peso lado a lado, botón Registrar a lo ancho debajo */
-  .bw-form-row .modal-field { flex: 1 1 calc(50% - 6px); }
-  .bw-form-row .btn { flex: 1 1 100%; justify-content: center; }
+  /* Peso corporal: apilar en móvil. El input nativo de tipo date tiene un
+     ancho mínimo intrínseco y no encoge en iOS, así que lado a lado se
+     desborda/solapa; a ancho completo cada campo eso no puede pasar. */
+  .bw-form-row { flex-direction: column; align-items: stretch; }
+  .bw-form-row .modal-field { flex: 1 1 auto; width: 100%; }
+  .bw-form-row .btn { flex: 1 1 auto; width: 100%; justify-content: center; }
   .mobile-nav {
     display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 90;
     background: var(--surface); border-top: 1px solid var(--border);
