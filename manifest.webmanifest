@@ -1,7 +1,7 @@
 {
   "name": "Gym&Jam",
   "short_name": "Gym&Jam",
-  "description": "Tu diario de entrenamiento: registra kilos y repeticiones, organiza rutinas y visualiza tu progreso.",
+  "description": "Tu diario de entrenamiento y alimentación: registra kilos y repeticiones, organiza rutinas, comidas y visualiza tu progreso.",
   "lang": "es",
   "start_url": "/",
   "scope": "/",

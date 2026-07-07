@@ -148,6 +148,7 @@
       workouts: [],    // {id, date, groups:[], notes, entries:[{exerciseId, sets:[{weight, reps}]}]}
       templates: [],   // {id, name, groups:[], entries:[{exerciseId, sets:[{weight, reps}]}]}
       nutrition: defaultNutrition(),
+      bodyweight: [],  // [{date:"YYYY-MM-DD", kg}] — one entry per day
       settings: { unit: "kg" },
     };
   }
@@ -193,6 +194,7 @@
       if (!Array.isArray(state.nutrition.foods)) state.nutrition.foods = [];
       if (!state.nutrition.log || typeof state.nutrition.log !== "object") state.nutrition.log = {};
     }
+    if (!Array.isArray(state.bodyweight)) state.bodyweight = [];
     return mergeDefaults();
   }
 
@@ -369,6 +371,30 @@
     );
   }
 
+  /* --- Body weight ------------------------------------------ */
+  // One entry per day (re-logging the same day overwrites). Returns asc by date.
+  function bodyweightLog() {
+    return [...(state.bodyweight || [])].sort((a, b) => (a.date < b.date ? -1 : 1));
+  }
+  function logBodyweight(date, kg) {
+    kg = Math.round(Number(kg) * 10) / 10;
+    if (!date || !isFinite(kg) || kg <= 0) return null;
+    if (!Array.isArray(state.bodyweight)) state.bodyweight = [];
+    const existing = state.bodyweight.find((e) => e.date === date);
+    if (existing) existing.kg = kg;
+    else state.bodyweight.push({ date, kg });
+    save();
+    return { date, kg };
+  }
+  function deleteBodyweight(date) {
+    state.bodyweight = (state.bodyweight || []).filter((e) => e.date !== date);
+    save();
+  }
+  function latestBodyweight() {
+    const log = bodyweightLog();
+    return log.length ? log[log.length - 1] : null;
+  }
+
   /* --- Metrics helpers -------------------------------------- */
   // A dropset is one set with extra lighter "drops" done back-to-back. Its
   // volume includes every drop segment; the top (main) weight/reps still drive
@@ -412,10 +438,10 @@
       throw new Error("Archivo no válido");
     }
     state = Object.assign(defaultState(), parsed);
-    if (!Array.isArray(state.exercises) || !state.exercises.length) {
-      state.exercises = seedExercises();
-    }
-    if (!Array.isArray(state.templates)) state.templates = [];
+    // Use the same normalizer as load()/replaceState() so nutrition and
+    // bodyweight are validated too (a malformed backup with a non-array
+    // bodyweight would otherwise crash later in bodyweightLog()).
+    normalize();
     save();
     return state;
   }
@@ -432,6 +458,7 @@
     addExercise, deleteExercise, exerciseById, setUnilateral,
     saveWorkout, deleteWorkout, workoutById, sortedWorkouts,
     saveTemplate, deleteTemplate, templateById, renameTemplate, sortedTemplates,
+    bodyweightLog, logBodyweight, deleteBodyweight, latestBodyweight,
     setVolume, workoutVolume, workoutSetCount, estimate1RM,
     exportJSON, importJSON, resetAll,
     setCacheKey, onSave, replaceState,

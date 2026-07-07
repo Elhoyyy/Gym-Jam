@@ -10,12 +10,14 @@
   /* --- Draft session (work in progress) --------------------- */
   let draft = null; // {id?, date, groups:[], notes, entries:[{exerciseId, sets:[]}]}
   let currentView = "today";
+  let swapEi = null;        // entry index being swapped via the picker (null = add mode)
   let workspace = "train";  // "train" | "food"
   let foodDate = null;      // selected day in the food diary (YYYY-MM-DD)
   let foodWeekStart = null; // Monday of the week shown in the weekly view
   let statsExercise = null; // selected exercise id for strength progression chart
   let statsTab = "fuerza";  // "fuerza" | "cardio"
   let heatWeeks = 26;       // consistency heatmap window (26 = 6 months, 53 = 1 year)
+  let bwRange = 90;         // body-weight chart window in days (0 = all)
   let cardioExercise = null; // selected exercise id for cardio pace chart
   let libFilter = "all";
   let libSearch = "";
@@ -144,6 +146,7 @@
   }
 
   function render() {
+    invalidatePRCache();   // history may have changed since the last view render
     if (currentView === "today") renderToday();
     else if (currentView === "templates") renderTemplates();
     else if (currentView === "history") renderHistory();
@@ -153,6 +156,7 @@
     else if (currentView === "food-week") renderFoodWeek();
     else if (currentView === "food-goals") renderFoodGoals();
     else if (currentView === "food-foods") renderFoodFoods();
+    else if (currentView === "food-weight") renderBodyweight();
     updateStreak();
   }
 
@@ -422,7 +426,7 @@
     return draft.entries.map((en, ei) => {
       const ex = DB.exerciseById(en.exerciseId);
       if (!ex) return "";
-      const g = G[ex.group];
+      const g = G[ex.group] || { name: ex.group || "—", color: "#888", abbr: "?" };
       const cardio = isCardio(ex.group);
       const uni = isUnilateral(ex);
       const fields = setFields(ex.group);
@@ -472,6 +476,7 @@
             <button class="icon-btn" data-action="move-up" title="Subir" ${ei === 0 ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             <button class="icon-btn" data-action="move-down" title="Bajar" ${ei === draft.entries.length - 1 ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           </div>
+          <button class="icon-btn" data-action="swap-entry" title="Cambiar ejercicio (mantiene las series)"><svg viewBox="0 0 24 24"><path d="M4 7h13l-3-3M20 17H7l3 3" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <button class="icon-btn danger" data-action="del-entry" title="Quitar ejercicio"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v13a1 1 0 001 1h8a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg></button>
         </div>
         ${lastHtml}
@@ -485,17 +490,26 @@
     }).join("");
   }
 
+  // Max weight ever, per exercise. Built once and reused across every set in a
+  // render and across keystrokes (history doesn't change mid-edit), instead of
+  // rescanning the whole workout history on each isPersonalRecord() call.
+  let prMaxCache = null;
+  function invalidatePRCache() { prMaxCache = null; }
+  function exerciseMaxWeight(exerciseId) {
+    if (!prMaxCache) {
+      prMaxCache = new Map();
+      DB.get().workouts.forEach((w) => (w.entries || []).forEach((en) => {
+        let m = prMaxCache.get(en.exerciseId) || 0;
+        (en.sets || []).forEach((s) => { const v = Number(s.weight) || 0; if (v > m) m = v; });
+        prMaxCache.set(en.exerciseId, m);
+      }));
+    }
+    return prMaxCache.get(exerciseId) || 0;
+  }
   function isPersonalRecord(exerciseId, weight, reps) {
     weight = Number(weight); reps = Number(reps);
     if (!weight || !reps) return false;
-    let maxW = 0;
-    DB.get().workouts.forEach((w) => {
-      (w.entries || []).forEach((en) => {
-        if (en.exerciseId === exerciseId) {
-          en.sets.forEach((s) => { if (Number(s.weight) > maxW) maxW = Number(s.weight); });
-        }
-      });
-    });
+    const maxW = exerciseMaxWeight(exerciseId);
     return weight > maxW && maxW > 0;
   }
 
@@ -610,6 +624,8 @@
       draft.entries[ei].sets.splice(si, 1);
       if (!draft.entries[ei].sets.length) draft.entries[ei].sets.push(newSetFor(ex ? ex.group : ""));
       refreshEntries();
+    } else if (action === "swap-entry") {
+      openSwapPicker(+btn.closest(".ex-block").dataset.ei);
     } else if (action === "del-entry") {
       const ei = +btn.closest(".ex-block").dataset.ei;
       draft.entries.splice(ei, 1);
@@ -637,6 +653,15 @@
       toast("Selecciona primero un tipo de entreno", "info");
       return;
     }
+    swapEi = null;           // add mode
+    renderPicker("");
+  }
+
+  // Open the picker to REPLACE the exercise of an existing block, keeping its
+  // sets (e.g. you planned it on cable but did it with a barbell).
+  function openSwapPicker(ei) {
+    if (!draft.entries[ei]) return;
+    swapEi = ei;
     renderPicker("");
   }
 
@@ -665,9 +690,15 @@
       listHtml = `<div class="empty-hint" style="padding:24px">No se encontró "<b>${escapeHtml(query)}</b>".<br>Puedes crearlo desde la pestaña Ejercicios.</div>`;
     }
 
+    const swapping = swapEi != null;
+    const swapEx = swapping ? DB.exerciseById(draft.entries[swapEi].exerciseId) : null;
+    const head = swapping
+      ? `<h2>Cambiar ejercicio</h2><p>Elige el que hiciste en su lugar${swapEx ? ` (sustituye a «${escapeHtml(swapEx.name)}»)` : ""}. Se conservan las series.</p>`
+      : `<h2>Elegir ejercicio</h2><p>Toca un ejercicio para añadirlo a tu entreno.</p>`;
+
     openModal(`
       <div class="modal-head">
-        <div><h2>Elegir ejercicio</h2><p>Toca un ejercicio para añadirlo a tu entreno.</p></div>
+        <div>${head}</div>
         <button class="icon-btn" id="closePicker"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       </div>
       <div class="picker-search">
@@ -683,13 +714,15 @@
       </div>
     `);
 
+    // Add mode adds a block; swap mode replaces the exercise of the target block.
+    const pick = (id) => (swapEi != null ? swapEntry(swapEi, id) : addEntry(id));
     const search = $("#pickerSearch");
     search.focus();
     search.addEventListener("input", () => renderPicker(search.value));
     $("#closePicker").addEventListener("click", closeModal);
-    $("#createExFromPicker").addEventListener("click", () => openCreateExercise(draft.groups[0], query));
+    $("#createExFromPicker").addEventListener("click", () => openCreateExercise(swapEx ? swapEx.group : draft.groups[0], query));
     $$("#pickerList .picker-item").forEach((it) => {
-      it.addEventListener("click", () => addEntry(it.dataset.ex));
+      it.addEventListener("click", () => pick(it.dataset.ex));
     });
   }
 
@@ -709,6 +742,24 @@
     closeModal();
     renderToday();
     toast(DB.exerciseById(exerciseId).name + " añadido", "success");
+  }
+
+  // Replace the exercise of an existing entry, keeping its logged sets. If the
+  // set type changes (strength ⇄ cardio) the fields are incompatible, so we
+  // reset to a single fresh set of the new type instead of leaving garbage.
+  function swapEntry(ei, exerciseId) {
+    const entry = draft.entries[ei];
+    const newEx = DB.exerciseById(exerciseId);
+    if (!entry || !newEx) { swapEi = null; closeModal(); return; }
+    const oldEx = DB.exerciseById(entry.exerciseId);
+    const crossType = isCardio(oldEx ? oldEx.group : "") !== isCardio(newEx.group);
+    entry.exerciseId = exerciseId;
+    if (crossType) entry.sets = [newSetFor(newEx.group)];
+    if (!draft.groups.includes(newEx.group)) draft.groups.push(newEx.group);
+    swapEi = null;
+    closeModal();
+    renderToday();
+    toast(`Cambiado a ${newEx.name}`, "success");
   }
 
   function saveSession() {
@@ -1313,7 +1364,7 @@
     const body = (w.entries || []).map((en) => {
       const ex = DB.exerciseById(en.exerciseId);
       if (!ex) return "";
-      const g = G[ex.group];
+      const g = G[ex.group] || { name: ex.group || "—", color: "#888" };
       const pills = en.sets.map((s) => isCardio(ex.group)
         ? `<span class="set-pill">${s.min ? `<b>${fmtNum(s.min)}</b> min` : ""}${s.min && s.km ? " · " : ""}${s.km ? `<b>${fmtNum(s.km)}</b> km` : ""}</span>`
         : `<span class="set-pill${hasDrops(s) ? " has-drops" : ""}">${s.side ? `<span class="side-badge">${s.side}</span> ` : ""}<b>${fmtNum(s.weight)}</b>kg × <b>${s.reps}</b>${hasDrops(s) ? s.drops.map((d) => `<span class="drop-seg">↓ <b>${fmtNum(d.weight)}</b>×<b>${d.reps}</b></span>`).join("") : ""}</span>`
@@ -1610,7 +1661,7 @@
       totalSets += en.sets.length;
     }));
     const groupDist = Object.entries(groupCounts)
-      .map(([k, v]) => ({ label: G[k].name, value: v, color: G[k].color }))
+      .map(([k, v]) => ({ label: (G[k] || {}).name || k, value: v, color: (G[k] || {}).color || "#888" }))
       .sort((a, b) => b.value - a.value);
 
     // weekly volume (last 8 weeks)
@@ -1830,7 +1881,7 @@
         const wgt = Number(s.weight) || 0, reps = Number(s.reps) || 0;
         if (!reps) return;
         const orm = DB.estimate1RM(wgt, reps);
-        if (!map[en.exerciseId]) map[en.exerciseId] = { id: en.exerciseId, name: ex.name, group: G[ex.group].name, maxWeight: 0, bestReps: 0, oneRM: 0, date: null };
+        if (!map[en.exerciseId]) map[en.exerciseId] = { id: en.exerciseId, name: ex.name, group: (G[ex.group] || {}).name || ex.group, maxWeight: 0, bestReps: 0, oneRM: 0, date: null };
         const rec = map[en.exerciseId];
         if (wgt > rec.maxWeight) { rec.maxWeight = wgt; rec.bestReps = reps; rec.date = w.date; }
         if (orm > rec.oneRM) rec.oneRM = orm;
@@ -2246,7 +2297,7 @@
       closeModal();
       toast("Ejercicio creado ✓", "success");
       if (currentView === "exercises") renderExercises();
-      else if (currentView === "today" && draft) { addEntry(ex.id); }
+      else if (currentView === "today" && draft) { if (swapEi != null) swapEntry(swapEi, ex.id); else addEntry(ex.id); }
     };
     $("#saveCreate").addEventListener("click", submit);
     nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
@@ -2283,6 +2334,49 @@
   }
   (function () { const b = document.getElementById("convBtn"); if (b) b.addEventListener("click", openConverter); })();
 
+  /* ---------- 1RM calculator ---------- */
+  const ORM_PCTS = [100, 95, 90, 85, 80, 75, 70, 65, 60];
+  function open1RM() {
+    closeActiveTools();
+    openModal(`
+      <div class="modal-head">
+        <h2 style="flex:1;font-size:20px">Calculadora de 1RM</h2>
+        <button class="icon-btn" id="closeOrm"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="conv-row">
+        <div class="modal-field"><label>Peso (kg)</label><input class="input" id="ormKg" type="number" step="0.5" min="0" inputmode="decimal" placeholder="0"></div>
+        <div class="modal-field"><label>Repeticiones</label><input class="input" id="ormReps" type="number" step="1" min="1" max="20" inputmode="numeric" placeholder="reps"></div>
+      </div>
+      <div class="orm-result" id="ormResult"></div>
+    `);
+    const kg = $("#ormKg"), reps = $("#ormReps");
+    const round = (w) => Math.round(w * 2) / 2;   // nearest 0.5 kg
+    const calc = () => {
+      const w = numLoc(kg.value), r = Math.round(numLoc(reps.value));
+      const box = $("#ormResult");
+      if (!w || !r || r < 1) { box.innerHTML = `<div class="orm-hint">Introduce el peso y las repeticiones que haces para estimar tu 1RM.</div>`; return; }
+      const orm = DB.estimate1RM(w, r);
+      const rows = ORM_PCTS.map((p) => {
+        const pw = round(orm * p / 100);
+        const er = p === 100 ? 1 : Math.max(1, Math.round(30 * (orm / pw - 1)));
+        return `<div class="orm-row"><span class="orm-pct">${p}%</span><span>${fmtNum(pw)} kg</span><span>~${er} rep${er === 1 ? "" : "s"}</span></div>`;
+      }).join("");
+      box.innerHTML = `
+        <div class="orm-hero">
+          <div class="orm-big"><span class="orm-num">${fmtNum(round(orm))}</span><span class="orm-unit">kg</span></div>
+          <div class="orm-sub">1RM estimado · fórmula de Epley</div>
+        </div>
+        <div class="orm-table"><div class="orm-row orm-head"><span>% 1RM</span><span>Peso</span><span>Aprox.</span></div>${rows}</div>`;
+    };
+    kg.addEventListener("input", calc);
+    reps.addEventListener("input", calc);
+    reps.addEventListener("keydown", (e) => { if (e.key === "Enter") kg.blur(); });
+    $("#closeOrm").addEventListener("click", closeModal);
+    calc();
+    kg.focus();
+  }
+  (function () { const b = document.getElementById("ormBtn"); if (b) b.addEventListener("click", open1RM); })();
+
   /* ---------- Tools menu ---------- */
   const TOOL_ITEMS_HTML = `
     <button class="tool-item" id="toolTimer">
@@ -2296,12 +2390,17 @@
     <button class="tool-item" id="toolConv">
       <svg viewBox="0 0 24 24" fill="none"><path d="M7 4H3m0 0l3-3M3 4l3 3M17 20h4m0 0l-3 3m3-3l-3-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 4h9a4 4 0 013 7M17 20H8a4 4 0 01-3-7" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
       Conversor kg ⇄ lb
+    </button>
+    <button class="tool-item" id="tool1RM">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M6.5 8.5v7M3.5 10v4M17.5 8.5v7M20.5 10v4M6.5 12h11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      Calculadora de 1RM
     </button>`;
 
   function wireToolItems(root, dismiss) {
     root.querySelector("#toolTimer").addEventListener("click", () => { dismiss(); global.RestTimer.open("rest", openTools); });
     root.querySelector("#toolStopwatch").addEventListener("click", () => { dismiss(); global.RestTimer.open("stopwatch", openTools); });
     root.querySelector("#toolConv").addEventListener("click", () => { dismiss(); openConverter(); });
+    root.querySelector("#tool1RM").addEventListener("click", () => { dismiss(); open1RM(); });
   }
 
   let toolsMenuEl = null;
@@ -2885,6 +2984,122 @@
       N().foods = N().foods.filter((f) => f.id !== b.dataset.delFood);
       DB.save();
       renderFoodFoods();
+    }));
+  }
+
+  /* ============================================================
+     VIEW: BODY WEIGHT
+     ============================================================ */
+  function renderBodyweight() {
+    const log = DB.bodyweightLog();               // ascending by date
+    const profile = N().profile;
+    const latest = log.length ? log[log.length - 1] : null;
+    const hCm = heightCm(profile.height);
+    const bmi = latest && hCm ? latest.kg / Math.pow(hCm / 100, 2) : 0;
+
+    let delta30 = null, deltaAll = null;
+    if (latest && log.length > 1) {
+      deltaAll = Math.round((latest.kg - log[0].kg) * 10) / 10;
+      const target = addDays(latest.date, -30);
+      let ref = log[0];
+      for (const e of log) { if (e.date <= target) ref = e; }
+      delta30 = Math.round((latest.kg - ref.kg) * 10) / 10;
+    }
+    // Colour a change by the user's goal, not by direction: losing is "good"
+    // when cutting, gaining is "good" when bulking, neutral when maintaining.
+    const goal = profile.goal;
+    const deltaChip = (d, label) => {
+      if (d === null) return "";
+      let cls = "";
+      if (d !== 0 && goal === "cut") cls = d < 0 ? "good" : "bad";
+      else if (d !== 0 && goal === "bulk") cls = d > 0 ? "good" : "bad";
+      const txt = d === 0 ? "±0" : (d > 0 ? "+" : "") + fmtNum(d) + " kg";
+      return `<div class="bw-stat"><span class="bw-stat-v ${cls}">${txt}</span><span class="bw-stat-l">${label}</span></div>`;
+    };
+
+    const cutoff = bwRange > 0 ? addDays(todayISO(), -bwRange) : null;
+    const shown = cutoff ? log.filter((e) => e.date >= cutoff) : log;
+    const series = shown.map((e) => ({ label: dateShort(e.date), value: e.kg }));
+    const RANGES = [[30, "30 d"], [90, "90 d"], [365, "1 año"], [0, "Todo"]];
+
+    const listRows = [...log].reverse().map((e, i, arr) => {
+      const prev = arr[i + 1];                    // previous chronological entry
+      const d = prev ? Math.round((e.kg - prev.kg) * 10) / 10 : null;
+      const dHtml = d === null ? "" : `<span class="bw-delta ${d > 0 ? "up" : d < 0 ? "down" : ""}">${d > 0 ? "+" : ""}${fmtNum(d)}</span>`;
+      return `<div class="record-row">
+        <div><div class="record-name">${fmtNum(e.kg)} kg</div><div class="record-meta">${fmtDate(e.date, { weekday: "short", day: "numeric", month: "short" })}</div></div>
+        <div class="record-val" style="display:flex;align-items:center;gap:14px">${dHtml}<button class="icon-btn danger" data-del-bw="${e.date}" title="Eliminar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button></div>
+      </div>`;
+    }).join("");
+
+    const prefill = latest ? latest.kg : (profile.weight || "");
+    const form = `
+      <div class="card bw-form">
+        <div class="bw-form-row">
+          <div class="modal-field"><label>Fecha</label><input type="date" class="input" id="bwDate" value="${todayISO()}" max="${todayISO()}"></div>
+          <div class="modal-field"><label>Peso (kg)</label><input class="input" id="bwKg" type="number" inputmode="decimal" min="20" max="400" step="0.1" placeholder="kg" value="${prefill}"></div>
+          <button class="btn btn-primary" id="bwAdd"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>Registrar</button>
+        </div>
+      </div>`;
+
+    main.innerHTML = `
+      <div class="view">
+        <div class="view-head">
+          <span class="eyebrow">Progreso</span>
+          <h1>Peso corporal</h1>
+          <p class="subtitle">${log.length ? "Registra tu peso y sigue la tendencia. Un dato por día." : "Apunta tu peso para ver tu evolución con el tiempo."}</p>
+        </div>
+        ${form}
+        ${latest ? `
+        <div class="card bw-hero">
+          <div>
+            <div class="year-hero-num">${fmtNum(latest.kg)}<small class="bw-unit"> kg</small></div>
+            <div class="year-hero-sub">último registro · ${fmtDate(latest.date, { day: "numeric", month: "long" })}</div>
+          </div>
+          <div class="bw-stats">
+            ${bmi ? `<div class="bw-stat"><span class="bw-stat-v">${bmi.toFixed(1)}</span><span class="bw-stat-l">IMC · ${bmiCategory(bmi)}</span></div>` : ""}
+            ${deltaChip(delta30, "30 días")}
+            ${deltaChip(deltaAll, "desde el inicio")}
+          </div>
+        </div>
+        <div class="card chart-card">
+          <div class="chart-head"><h3>Evolución</h3>
+            <div class="seg seg-sm" id="bwSeg">${RANGES.map(([v, l]) => `<button class="seg-btn ${bwRange === v ? "is-active" : ""}" data-days="${v}">${l}</button>`).join("")}</div>
+          </div>
+          <div class="chart-wrap">${series.length ? Charts.lineChart(series, { color: "#2f6690", color2: "#1f8a80", unit: "kg", yFrom: "auto" }) : '<div class="empty-hint" style="border:none">Sin registros en este periodo.</div>'}</div>
+        </div>
+        <div class="card mt-24">
+          <div class="section-title mb-16">Historial <span class="count-pill">${log.length}</span></div>
+          ${listRows}
+        </div>` : `<div class="empty-hint"><span class="emoji">⚖️</span>Aún no has registrado tu peso.<br>Apunta el primero en el formulario de arriba.</div>`}
+      </div>`;
+
+    const doAdd = () => {
+      const date = $("#bwDate").value || todayISO();
+      const kg = numLoc($("#bwKg").value);
+      if (!kg || kg <= 0) { toast("Introduce un peso válido", "error"); return; }
+      DB.logBodyweight(date, kg);
+      const lt = DB.latestBodyweight();
+      if (lt) { N().profile.weight = lt.kg; DB.save(); }   // keep goals profile in sync
+      toast("Peso registrado", "success");
+      renderBodyweight();
+    };
+    $("#bwAdd").addEventListener("click", doAdd);
+    $("#bwKg").addEventListener("keydown", (e) => { if (e.key === "Enter") doAdd(); });
+    const seg = $("#bwSeg");
+    if (seg) seg.querySelectorAll(".seg-btn").forEach((b) => b.addEventListener("click", () => {
+      const v = +b.dataset.days; if (v === bwRange) return; bwRange = v; renderBodyweight();
+    }));
+    const syncProfileWeight = () => { const lt = DB.latestBodyweight(); if (lt) { N().profile.weight = lt.kg; DB.save(); } };
+    $$("[data-del-bw]").forEach((b) => b.addEventListener("click", () => {
+      const date = b.dataset.delBw;
+      const entry = DB.bodyweightLog().find((e) => e.date === date);
+      DB.deleteBodyweight(date);
+      syncProfileWeight();
+      renderBodyweight();
+      if (entry) toastUndo(`Registro de ${fmtNum(entry.kg)} kg eliminado`, () => {
+        DB.logBodyweight(entry.date, entry.kg); syncProfileWeight(); renderBodyweight();
+      });
     }));
   }
 

@@ -481,6 +481,21 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .year-hero-sub { font-size: 13px; color: var(--text-dim); }
 .year-hero-sub b { color: var(--ink); font-weight: 700; }
 
+/* Body weight view */
+.bw-form { margin-bottom: 18px; padding: 16px 20px; }
+.bw-form-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.bw-form-row .modal-field { flex: 1; min-width: 130px; margin: 0; }
+.bw-form-row .btn { flex-shrink: 0; }
+.bw-hero { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 18px; }
+.bw-unit { font-size: 16px; color: var(--text-dim); font-weight: 600; letter-spacing: 0; }
+.bw-stats { display: flex; gap: 26px; flex-wrap: wrap; }
+.bw-stat { display: flex; flex-direction: column; gap: 3px; }
+.bw-stat-v { font-family: "Space Grotesk"; font-size: 20px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.bw-stat-v.good { color: var(--pos); }
+.bw-stat-v.bad { color: var(--neg); }
+.bw-stat-l { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+.bw-delta { font-family: "Space Grotesk"; font-weight: 700; font-size: 13.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
 .select-inline { padding: 7px 11px; font-size: 13px; }
 
 /* ============================================================
@@ -877,6 +892,23 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .conv-row { display: flex; align-items: flex-end; gap: 12px; }
 .conv-row .modal-field { flex: 1; margin-bottom: 0; }
 .conv-eq { font-size: 20px; color: var(--text-faint); padding-bottom: 11px; }
+
+/* 1RM calculator */
+.orm-result { margin-top: 16px; }
+.orm-hint { color: var(--text-dim); font-size: 13.5px; text-align: center; padding: 18px 6px; }
+.orm-hero { text-align: center; padding: 4px 0 16px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.orm-big { display: flex; align-items: baseline; gap: 6px; justify-content: center; }
+.orm-num { font-family: "Space Grotesk"; font-size: 46px; font-weight: 700; color: var(--ink); line-height: 1; font-variant-numeric: tabular-nums; }
+.orm-unit { font-size: 18px; color: var(--text-dim); font-weight: 600; }
+.orm-sub { font-size: 11.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; margin-top: 8px; }
+.orm-table { display: flex; flex-direction: column; }
+.orm-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; padding: 8px 4px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; font-size: 14px; }
+.orm-row:last-child { border-bottom: none; }
+.orm-row > :nth-child(2) { text-align: center; color: var(--ink); font-weight: 600; }
+.orm-row > :nth-child(3) { text-align: right; color: var(--text-dim); font-size: 13px; }
+.orm-row.orm-head { border-bottom: 1px solid var(--border-strong); font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
+.orm-row.orm-head > * { color: var(--text-faint) !important; font-weight: 700; }
+.orm-pct { font-weight: 700; color: var(--accent); }
 
 /* ============================================================
    Mobile top bar + account menu

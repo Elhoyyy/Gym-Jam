@@ -60,6 +60,8 @@
     }, { passive: true });
     document.addEventListener("pointerdown", hideTip, { passive: true });
     window.addEventListener("scroll", hideTip, { passive: true, capture: true });
+    // Note: no document-level "pointerleave" — pointermove already hides the
+    // tooltip when the cursor is over any element without [data-tip].
   }
 
   function isoLocal(d) {
@@ -84,6 +86,14 @@
     if (Math.abs(n) >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
     return String(Math.round(n));
   }
+  // fmt() rounds to integers, which is fine for compact AXIS labels but wrong
+  // for tooltips/point labels of decimal series (78.4 kg → "78", 5.2 km → "5").
+  // fmtVal keeps one decimal for exact readouts.
+  function fmtVal(n) {
+    n = Number(n) || 0;
+    if (Math.abs(n) >= 1000) return fmt(n);
+    return String(Math.round(n * 10) / 10);
+  }
 
   /* --- Line / area chart ------------------------------------ */
   // data: [{label, value}]
@@ -98,18 +108,32 @@
 
     if (!data.length) return emptyChart(W, H);
 
-    const maxV = niceMax(Math.max(...data.map((d) => d.value), 1));
+    const n = data.length;
+    const vals = data.map((d) => d.value);
+    // opts.yFrom === "auto" zooms the Y axis to the data range (with padding)
+    // instead of starting at 0 — essential for body weight / pace, where a
+    // 0-based axis squashes the line into a flat band at the top.
+    const autoY = opts.yFrom === "auto" && n > 1;
+    let yMin = 0, yMax;
+    if (autoY) {
+      const dmin = Math.min(...vals), dmax = Math.max(...vals);
+      const range = (dmax - dmin) || Math.max(1, dmax * 0.1);
+      yMin = Math.max(0, dmin - range * 0.25);
+      yMax = dmax + range * 0.25;
+    } else {
+      yMax = niceMax(Math.max(...vals, 1));
+    }
     const innerW = W - padL - padR;
     const innerH = H - padT - padB;
-    const n = data.length;
+    const span = (yMax - yMin) || 1;
     const x = (i) => padL + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW);
-    const y = (v) => padT + innerH - (v / maxV) * innerH;
+    const y = (v) => padT + innerH - ((v - yMin) / span) * innerH;
 
     let grid = "";
     const rows = 4;
     for (let r = 0; r <= rows; r++) {
       const gy = padT + (r / rows) * innerH;
-      const val = maxV * (1 - r / rows);
+      const val = yMax - (r / rows) * span;
       grid += `<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${W - padR}" y2="${gy.toFixed(1)}" stroke="${tc.grid}" stroke-width="1" stroke-dasharray="3 4"/>`;
       grid += `<text x="${padL - 8}" y="${(gy + 4).toFixed(1)}" fill="${tc.axis}" font-size="11" text-anchor="end" font-family="Inter">${fmt(val)}</text>`;
     }
@@ -136,14 +160,14 @@
     data.forEach((d, i) => {
       const l = i === 0 ? padL : (x(i - 1) + x(i)) / 2;
       const r = i === n - 1 ? (W - padR) : (x(i) + x(i + 1)) / 2;
-      bands += `<rect x="${l.toFixed(1)}" y="${padT}" width="${Math.max(0, r - l).toFixed(1)}" height="${innerH}" fill="transparent" data-tip="${esc(d.label)}" data-tipv="${esc(fmt(d.value) + unit)}"/>`;
+      bands += `<rect x="${l.toFixed(1)}" y="${padT}" width="${Math.max(0, r - l).toFixed(1)}" height="${innerH}" fill="transparent" data-tip="${esc(d.label)}" data-tipv="${esc(fmtVal(d.value) + unit)}"/>`;
     });
 
     // Direct label on the most recent point (selective labelling).
     const lv = data[n - 1];
     const lx = x(n - 1), ly = y(lv.value);
     const labelY = ly < padT + 16 ? ly + 16 : ly - 10;
-    const lastLabel = `<text x="${lx.toFixed(1)}" y="${labelY.toFixed(1)}" fill="${tc.center}" font-size="12" font-weight="700" text-anchor="${n === 1 ? "middle" : "end"}" font-family="Space Grotesk">${fmt(lv.value)}</text>`;
+    const lastLabel = `<text x="${lx.toFixed(1)}" y="${labelY.toFixed(1)}" fill="${tc.center}" font-size="12" font-weight="700" text-anchor="${n === 1 ? "middle" : "end"}" font-family="Space Grotesk">${fmtVal(lv.value)}</text>`;
 
     return `<svg ${NS} viewBox="0 0 ${W} ${H}" role="img" class="gj-chart">
       <defs>
@@ -203,7 +227,7 @@
       const bh = padT + innerH - by;
       const c = d.color || baseColor;
       // Full-height hit target so hovering the column (not just the bar) works.
-      bars += `<rect x="${(cx - slot / 2).toFixed(1)}" y="${padT}" width="${slot.toFixed(1)}" height="${innerH}" fill="transparent" data-tip="${esc(d.label)}" data-tipv="${esc(fmt(d.value) + unit)}"/>`;
+      bars += `<rect x="${(cx - slot / 2).toFixed(1)}" y="${padT}" width="${slot.toFixed(1)}" height="${innerH}" fill="transparent" data-tip="${esc(d.label)}" data-tipv="${esc(fmtVal(d.value) + unit)}"/>`;
       bars += `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, bh).toFixed(1)}" rx="6" fill="${c}" pointer-events="none"/>`;
       bars += `<text x="${cx.toFixed(1)}" y="${H - 12}" fill="${tc.sub}" font-size="10.5" text-anchor="middle" font-family="Inter">${esc(d.label)}</text>`;
     });
@@ -234,7 +258,7 @@
       const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
       const xi1 = cx + r2 * Math.cos(a1), yi1 = cy + r2 * Math.sin(a1);
       const xi0 = cx + r2 * Math.cos(a0), yi0 = cy + r2 * Math.sin(a0);
-      arcs += `<path d="M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} L ${xi1.toFixed(2)} ${yi1.toFixed(2)} A ${r2} ${r2} 0 ${large} 0 ${xi0.toFixed(2)} ${yi0.toFixed(2)} Z" fill="${d.color}" data-tip="${esc(d.label)}" data-tipv="${esc(fmt(d.value) + (opts.unit ? " " + opts.unit : "") + " · " + Math.round(frac * 100) + "%")}"/>`;
+      arcs += `<path d="M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} L ${xi1.toFixed(2)} ${yi1.toFixed(2)} A ${r2} ${r2} 0 ${large} 0 ${xi0.toFixed(2)} ${yi0.toFixed(2)} Z" fill="${d.color}" data-tip="${esc(d.label)}" data-tipv="${esc(fmtVal(d.value) + (opts.unit ? " " + opts.unit : "") + " · " + Math.round(frac * 100) + "%")}"/>`;
       a0 = a1;
     });
 
