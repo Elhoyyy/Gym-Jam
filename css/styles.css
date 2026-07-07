@@ -263,7 +263,10 @@ h1, h2, h3, .brand-name, .display, .stat-value, .num { font-family: "Space Grote
 textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .select { cursor: pointer; }
 
-.toast-undo { background: none; border: none; color: var(--accent); font: inherit; font-weight: 700; cursor: pointer; margin-left: 4px; padding: 2px 4px; }
+/* The host is pointer-events:none so passive toasts don't block the UI behind
+   them; the undo button must opt back in or its taps pass straight through. */
+.toast-undo { background: none; border: none; color: var(--accent); font: inherit; font-weight: 700; cursor: pointer; margin-left: 4px; padding: 6px 10px; margin-right: -4px; border-radius: 6px; pointer-events: auto; }
+.toast-undo:active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
 .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; flex-shrink: 0; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .loading-row { display: flex; align-items: center; gap: 10px; justify-content: center; padding: 26px 14px; color: var(--text-dim); font-size: 13.5px; }
@@ -484,7 +487,10 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 /* Body weight view */
 .bw-form { margin-bottom: 18px; padding: 16px 20px; }
 .bw-form-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
-.bw-form-row .modal-field { flex: 1; min-width: 130px; margin: 0; }
+/* min-width:0 lets the fields (and the wide native date input) actually shrink,
+   otherwise they overflow and overlap on narrow screens. */
+.bw-form-row .modal-field { flex: 1 1 130px; min-width: 0; margin: 0; }
+.bw-form-row .modal-field .input { min-width: 0; width: 100%; }
 .bw-form-row .btn { flex-shrink: 0; }
 .bw-hero { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 18px; }
 .bw-unit { font-size: 16px; color: var(--text-dim); font-weight: 600; letter-spacing: 0; }
@@ -985,6 +991,9 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
   .view-head h1 { font-size: 25px; }
   .history-metrics { width: 100%; justify-content: flex-start; margin-left: 0; margin-top: 12px; }
   .history-top { flex-wrap: wrap; }
+  /* Peso corporal: Fecha + Peso lado a lado, botón Registrar a lo ancho debajo */
+  .bw-form-row .modal-field { flex: 1 1 calc(50% - 6px); }
+  .bw-form-row .btn { flex: 1 1 100%; justify-content: center; }
   .mobile-nav {
     display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 90;
     background: var(--surface); border-top: 1px solid var(--border);
