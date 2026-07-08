@@ -83,6 +83,21 @@
   function flushWhenOnline() { if (mode === "backend" && hasPending()) pushNow(); }
   window.addEventListener("online", flushWhenOnline);
 
+  // Periodic auto-sync as a safety net: iOS PWAs often never fire the `online`
+  // event, so every 5 min (and whenever the app returns to the foreground) we
+  // push anything still pending. Only pushes — never a surprise pull/re-render.
+  const AUTO_SYNC_MS = 5 * 60 * 1000;
+  function autoSyncTick() {
+    if (mode !== "backend") return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    if (typeof document !== "undefined" && document.hidden) return;
+    if (hasPending()) pushNow();
+  }
+  setInterval(autoSyncTick, AUTO_SYNC_MS);
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) flushWhenOnline(); });
+  }
+
   // Manual "sync now" — iOS PWAs don't always fire the `online` event, so give
   // the user a button. Pushes pending edits; if none, pulls the latest state.
   async function forceSync() {
@@ -112,6 +127,9 @@
       el.innerHTML = `<span class="sync-dot" style="background:${color}"></span>${label}`;
     });
     document.querySelectorAll(".js-sync-refresh").forEach((el) => el.classList.toggle("spin", s === "saving"));
+    // Ring around the user avatar mirrors the sync state (green=synced,
+    // red=offline, amber=saving). CSS reads data-sync; see .account-avatar.
+    document.querySelectorAll(".account-avatar").forEach((el) => { el.dataset.sync = s; });
   }
 
   /* ---------- account box (sidebar) ---------- */
@@ -161,11 +179,16 @@
     try {
       localStorage.setItem(LOGGEDOUT_KEY, "1");
       localStorage.removeItem(TOKEN_KEY);
-      clearPending();
     } catch (_) {}
     // Hide the app immediately so the click feels instant (no UI lingering
     // while the reload happens).
     try { document.documentElement.classList.add("auth-pending"); } catch (_) {}
+    // Best-effort flush of unsynced (offline) edits BEFORE clearing the pending
+    // flag — otherwise logging out would drop them and the next login's server
+    // pull would silently overwrite them. If the push fails (offline), keep the
+    // token so it still flushes on the next session.
+    if (mode === "backend" && hasPending()) { try { await pushNow(); } catch (_) {} }
+    if (!hasPending()) { try { clearPending(); } catch (_) {} }
     token = null;
     try { await api("/api/logout", { method: "POST" }); } catch (_) {}
     location.reload();
@@ -217,8 +240,8 @@
       </div>`;
     document.body.appendChild(el);
 
-    const themeBtn = el.querySelector("#authTheme");
-    if (themeBtn) themeBtn.addEventListener("click", () => { if (global.Theme) global.Theme.toggle(); });
+    // The theme button (class js-theme-toggle) is handled by theme.js's
+    // delegated listener — no explicit wiring here, or it would toggle twice.
 
     let tab = "login";
     const form = el.querySelector("#authForm");

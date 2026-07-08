@@ -144,7 +144,7 @@ mine.forEach((m) => {
 const CARDIO = {
   "Cinta de correr": "treadmill", "Caminata inclinada": "treadmill",
   "Bicicleta estática": "bike", "Bicicleta de spinning": "bike", "Assault bike": "bike",
-  "Elíptica": "elliptical", "Remo (máquina)": "rower", "Escaladora (stairmaster)": "stairs",
+  "Elíptica": "elliptical", "Remo (máquina)": "rower", "Remo": "rower", "Escaladora (stairmaster)": "stairs",
   "Comba": "jumprope", "Sprints": "run", "Burpees": "run",
   "Caminar": "walk", "Nadar": "swim", "Senderismo": "hiking", "Patinar": "skate", "Esquí": "ski",
 };

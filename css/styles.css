@@ -463,6 +463,21 @@ html.auth-pending .theme-toggle { display: none !important; }
 .profile-stats > div:last-child { border-right: none; }
 .profile-stats b { display: block; font-family: "Space Grotesk"; font-size: 21px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
 .profile-stats span { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+.goal-water { text-align: center; font-size: 14px; color: var(--text-dim); margin: 6px 0 16px; }
+.goal-water b { color: #2f6690; font-family: "Space Grotesk"; font-weight: 700; font-size: 15px; }
+.goal-water small { color: var(--text-faint); }
+
+/* Water tracker (food diary) */
+.water-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.water-title { font-weight: 600; font-size: 15px; color: var(--ink); }
+.water-sub { font-size: 12.5px; color: var(--text-dim); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.water-glasses { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+.water-glass { width: 28px; height: 34px; padding: 0; background: none; border: none; cursor: pointer; display: grid; place-items: center; }
+.water-glass svg { width: 22px; height: 30px; }
+.water-glass svg path { stroke: var(--border-strong); stroke-width: 1.5; fill: none; transition: fill 0.15s, stroke 0.15s; }
+.water-glass.is-full svg path { fill: color-mix(in srgb, #2f6690 78%, transparent); stroke: #2f6690; }
+.water-glass:hover svg path { stroke: #2f6690; }
+
 .profile-sync { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 14px; margin-bottom: 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
 .profile-sync .sync-status { font-size: 13px; }
 .profile-actions { display: flex; flex-direction: column; gap: 8px; }
@@ -599,7 +614,7 @@ html.auth-pending .theme-toggle { display: none !important; }
 
 /* Exercise detail media (2-frame pseudo-animation from start/end photos) */
 .ex-media-frame { position: relative; width: 100%; aspect-ratio: 3 / 2; border-radius: var(--radius-sm); overflow: hidden; background: #fff; border: 1px solid var(--border); margin-bottom: 16px; }
-.ex-media-frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; }
+.ex-media-frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; background: #fff; }
 .ex-media-frame .frame-b { opacity: 0; }
 .ex-media-frame.animate .frame-b { animation: exFrame 1.4s steps(1, end) infinite; }
 @keyframes exFrame { 0%, 50% { opacity: 0; } 50.01%, 100% { opacity: 1; } }
@@ -670,7 +685,7 @@ html.auth-pending .theme-toggle { display: none !important; }
 .auth-card { position: relative; z-index: 1; }
 /* Theme toggle inside the auth card — only shown on mobile, where the floating one is hidden */
 .auth-theme {
-  display: none;
+  display: grid;   /* visible on every size, including desktop login */
   position: absolute; top: 16px; right: 16px; z-index: 2;
   width: 38px; height: 38px; border-radius: 50%;
   border: 1px solid var(--border); background: var(--surface-2); color: var(--ink);
@@ -715,7 +730,12 @@ html.auth-pending .theme-toggle { display: none !important; }
    ============================================================ */
 .account { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
 .account-info { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
-.account-avatar { width: 32px; height: 32px; border-radius: 8px; background: var(--solid); color: var(--on-solid); display: grid; place-items: center; font-family: "Space Grotesk"; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+.account-avatar { width: 32px; height: 32px; border-radius: 8px; background: var(--solid); color: var(--on-solid); display: grid; place-items: center; font-family: "Space Grotesk"; font-weight: 700; font-size: 14px; flex-shrink: 0; box-shadow: 0 0 0 0 transparent; transition: box-shadow .25s ease; }
+/* Sync-state ring around the avatar (set via data-sync in setSync). Uses an
+   outer box-shadow so the 32×32 box size is unaffected. Idle/local: no ring. */
+.account-avatar[data-sync="synced"]  { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--pos); }
+.account-avatar[data-sync="offline"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--neg); }
+.account-avatar[data-sync="saving"]  { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--amber, #c07a1e); }
 .account-meta { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .account-email { font-size: 12.5px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sync-status { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--text-faint); font-weight: 600; }

@@ -18,8 +18,12 @@
   }
   function toggle() { apply(current() === "dark" ? "light" : "dark"); }
 
+  // One delegated listener handles every .js-theme-toggle — including buttons
+  // added later (e.g. the login screen), and with no risk of double-binding.
   function init() {
-    document.querySelectorAll(".js-theme-toggle").forEach((b) => b.addEventListener("click", toggle));
+    document.addEventListener("click", (e) => {
+      if (e.target.closest && e.target.closest(".js-theme-toggle")) toggle();
+    });
   }
   if (document.readyState !== "loading") init();
   else document.addEventListener("DOMContentLoaded", init);

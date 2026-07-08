@@ -2504,7 +2504,7 @@
     const fat = Math.round((kcal * 0.25) / 9);
     const carbs = Math.max(0, Math.round((kcal - protein * 4 - fat * 9) / 4));
     const bmi = w / Math.pow(h / 100, 2);
-    return { bmr: Math.round(bmr), tdee: Math.round(tdee), kcal, protein, carbs, fat, bmi };
+    return { bmr: Math.round(bmr), tdee: Math.round(tdee), kcal, protein, carbs, fat, bmi, water: waterGoalForWeight(w) };
   }
   function bmiCategory(bmi) {
     if (bmi < 18.5) return "Bajo peso";
@@ -2529,6 +2529,52 @@
       <div class="mb-top"><span>${label}</span><span><b>${Math.round(consumed)}</b> / ${Math.round(target)} g</span></div>
       <div class="mb-track"><div class="mb-fill" style="width:${pct}%;background:${color}"></div></div>
     </div>`;
+  }
+
+  /* ---------- Water ---------- */
+  const GLASS_ML = 250;
+  // Daily goal ≈ 35 ml per kg of body weight (rounded to a glass), fallback 2.5 L.
+  function waterGoalForWeight(w) {
+    let ml = w > 0 ? Math.round((w * 35) / GLASS_ML) * GLASS_ML : 2500;
+    return Math.max(1500, Math.min(4000, ml));
+  }
+  function waterGoalMl() { return waterGoalForWeight(numLoc(N().profile.weight)); }
+  function dayWater(date) { return Number(N().water[date]) || 0; }
+  function setWater(date, ml) {
+    ml = Math.max(0, Math.round(ml));
+    if (ml) N().water[date] = ml; else delete N().water[date];
+    DB.save();
+  }
+  const GLASS_SVG = '<svg viewBox="0 0 24 24"><path d="M6 3h12l-1.3 16.2a1.6 1.6 0 0 1-1.6 1.5H8.9a1.6 1.6 0 0 1-1.6-1.5L6 3z"/></svg>';
+  function waterCardHtml() {
+    const cur = dayWater(foodDate), goal = waterGoalMl();
+    const goalGlasses = Math.round(goal / GLASS_ML);
+    const filled = Math.round(cur / GLASS_ML);
+    const shown = Math.min(20, Math.max(goalGlasses, filled));
+    const litres = (ml) => (ml / 1000).toLocaleString("es-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + " L";
+    let glasses = "";
+    for (let i = 0; i < shown; i++) glasses += `<button class="water-glass${i < filled ? " is-full" : ""}" data-glass="${i}" title="${(i + 1) * GLASS_ML} ml">${GLASS_SVG}</button>`;
+    const done = goal > 0 && cur >= goal;
+    return `<div class="card water-card mt-16">
+      <div class="water-top">
+        <div><div class="water-title">💧 Agua</div><div class="water-sub">${litres(cur)} de ${litres(goal)}${done ? " · ¡meta! 🎉" : ""}</div></div>
+        <div class="row" style="gap:8px">
+          <button class="icon-btn" id="waterMinus" title="Quitar vaso"><svg viewBox="0 0 24 24"><path d="M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+          <button class="btn btn-ghost btn-sm" id="waterPlus"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>Vaso</button>
+        </div>
+      </div>
+      <div class="water-glasses">${glasses}</div>
+    </div>`;
+  }
+  function bindWater() {
+    const p = $("#waterPlus"); if (p) p.addEventListener("click", () => { setWater(foodDate, dayWater(foodDate) + GLASS_ML); renderFoodDiary(); });
+    const m = $("#waterMinus"); if (m) m.addEventListener("click", () => { setWater(foodDate, dayWater(foodDate) - GLASS_ML); renderFoodDiary(); });
+    $$("[data-glass]").forEach((b) => b.addEventListener("click", () => {
+      const i = +b.dataset.glass, filled = Math.round(dayWater(foodDate) / GLASS_ML);
+      // tap the current top glass to empty it, otherwise fill up to it
+      setWater(foodDate, (filled === i + 1 ? i : i + 1) * GLASS_ML);
+      renderFoodDiary();
+    }));
   }
 
   /* ---------- Diary ---------- */
@@ -2599,9 +2645,11 @@
           </div>
         </div>
         ${summary}
+        ${waterCardHtml()}
         <div class="meals-grid mt-16">${meals}</div>
       </div>`;
 
+    bindWater();
     $("#prevDay").addEventListener("click", () => { foodDate = addDays(foodDate, -1); renderFoodDiary(); });
     const nx = $("#nextDay"); if (nx && !isToday) nx.addEventListener("click", () => { foodDate = addDays(foodDate, 1); renderFoodDiary(); });
     const tb = $("#todayBtn"); if (tb) tb.addEventListener("click", () => { foodDate = todayISO(); renderFoodDiary(); });
@@ -2930,6 +2978,7 @@
       box.innerHTML = `
         <div class="section-title mb-16">Recomendación</div>
         <div class="goal-kcal"><b>${c.kcal}</b> kcal / día</div>
+        <div class="goal-water">💧 <b>${(c.water / 1000).toLocaleString("es-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} L</b> de agua al día <small>(${Math.round(c.water / 250)} vasos)</small></div>
         <div class="goal-macros">
           <div class="gm"><span class="gm-dot" style="background:#2f6690"></span><b>${c.protein} g</b><span>proteína</span></div>
           <div class="gm"><span class="gm-dot" style="background:#c07a1e"></span><b>${c.carbs} g</b><span>carbos</span></div>
@@ -3193,8 +3242,7 @@
         const reader = new FileReader();
         reader.onload = () => {
           try {
-            DB.importJSON(String(reader.result || ""));
-            DB.save();                     // persist + mark pending → syncs when online
+            DB.importJSON(String(reader.result || ""));   // persists + marks pending → syncs when online
             toast("Copia importada", "success");
             location.reload();             // clean reset with the new data
           } catch (_) { toast("Archivo no válido", "error"); }

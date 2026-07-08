@@ -106,7 +106,7 @@
     // ---- Cardio ----
     ["Cinta de correr", "cardio"], ["Caminata inclinada", "cardio"],
     ["Bicicleta estática", "cardio"], ["Bicicleta de spinning", "cardio"],
-    ["Elíptica", "cardio"], ["Remo (máquina)", "cardio"],
+    ["Elíptica", "cardio"], ["Remo (máquina)", "cardio"], ["Remo", "cardio"],
     ["Escaladora (stairmaster)", "cardio"], ["Assault bike", "cardio"],
     ["Comba", "cardio"], ["Sprints", "cardio"], ["Burpees", "cardio"],
     ["Caminar", "cardio"], ["Nadar", "cardio"], ["Senderismo", "cardio"],
@@ -138,6 +138,7 @@
       targets: { kcal: 0, protein: 0, carbs: 0, fat: 0, auto: true },
       foods: [],   // custom saved foods: {id, name, brand, kcal, protein, carbs, fat}  (per 100 g)
       log: {},     // "YYYY-MM-DD": { desayuno:[entry], comida:[], cena:[], snack:[] }
+      water: {},   // "YYYY-MM-DD": ml drunk that day
     };            // entry: {id, name, grams, kcal, protein, carbs, fat}  (macros per 100 g)
   }
 
@@ -193,6 +194,7 @@
       if (!state.nutrition.targets) state.nutrition.targets = d.targets;
       if (!Array.isArray(state.nutrition.foods)) state.nutrition.foods = [];
       if (!state.nutrition.log || typeof state.nutrition.log !== "object") state.nutrition.log = {};
+      if (!state.nutrition.water || typeof state.nutrition.water !== "object") state.nutrition.water = {};
     }
     if (!Array.isArray(state.bodyweight)) state.bodyweight = [];
     return mergeDefaults();

@@ -4,13 +4,20 @@
    served from the network (never cached), so data stays fresh.
    Bump CACHE when you deploy changes to force an update.
    ============================================================ */
-const CACHE = "gymjam-v39";
+const CACHE = "gymjam-v48";
 const SHELL = [
   "/", "/index.html", "/css/styles.css",
   "/js/theme.js", "/js/timer.js", "/js/storage.js", "/js/exercise-media.js",
-  "/js/charts.js", "/js/auth.js", "/js/app.js",
+  "/js/charts.js", "/js/auth.js", "/js/app.js", "/js/install.js",
+  "/assets/vendor/zxing.min.js",
   "/assets/favicon.svg", "/assets/auth-bg.svg",
   "/assets/icon-192.png", "/assets/icon-512.png", "/manifest.webmanifest",
+  // Cardio illustrations (same-origin, referenced from EXERCISE_MEDIA) — precached
+  // so they render offline like the rest of the shell.
+  "/assets/cardio/bike.svg", "/assets/cardio/elliptical.svg", "/assets/cardio/hiking.svg",
+  "/assets/cardio/jumprope.svg", "/assets/cardio/rower.svg", "/assets/cardio/run.svg",
+  "/assets/cardio/skate.svg", "/assets/cardio/ski.svg", "/assets/cardio/stairs.svg",
+  "/assets/cardio/swim.svg", "/assets/cardio/treadmill.svg", "/assets/cardio/walk.svg",
 ];
 
 self.addEventListener("install", (e) => {
