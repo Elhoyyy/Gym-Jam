@@ -227,6 +227,231 @@
   }
 
   /* ============================================================
+     ACHIEVEMENTS (logros)
+     Derived on-the-fly from the current state — nothing extra is stored in
+     the synced DB. Only the set of already-announced ids is persisted locally
+     (per user, per device) so the unlock toast fires once and never re-fires
+     on reload or on another device.
+     ============================================================ */
+  // The four "compound" lifts a Club-X-kg badge accepts (matched loosely by name
+  // so custom variants like "Sentadilla con barra" still count).
+  const BIG_LIFT_RE = /(press de banca|press banca|sentadilla|peso muerto|press militar)/i;
+  const K = 1000;
+
+  // Each achievement: id, tier (colours the medal), icon (emoji), name, hint,
+  // and progress(agg) → { cur, target }. Unlocked when cur >= target. `target`
+  // of 1 means a simple boolean milestone.
+  const ACHIEVEMENTS = [
+    // ---- Constancia ----
+    { id: "first",     tier: "bronze", icon: "🌱", name: "El primer paso",   hint: "Guarda tu primer entreno",        p: (a) => ({ cur: a.count, target: 1 }) },
+    { id: "sessions10",tier: "bronze", icon: "🔟", name: "Cogiendo el ritmo", hint: "10 entrenos registrados",         p: (a) => ({ cur: a.count, target: 10 }) },
+    { id: "sessions50",tier: "silver", icon: "🏋️", name: "Habitual",          hint: "50 entrenos registrados",         p: (a) => ({ cur: a.count, target: 50 }) },
+    { id: "sessions100",tier:"gold",   icon: "💯", name: "Centurión",         hint: "100 entrenos registrados",        p: (a) => ({ cur: a.count, target: 100 }) },
+    { id: "sessions250",tier:"legend", icon: "👑", name: "Leyenda del hierro", hint: "250 entrenos registrados",       p: (a) => ({ cur: a.count, target: 250 }) },
+    { id: "streak7",   tier: "bronze", icon: "🔥", name: "Semana perfecta",   hint: "7 días seguidos entrenando",      p: (a) => ({ cur: a.bestStreak, target: 7 }) },
+    { id: "streak30",  tier: "gold",   icon: "☄️", name: "Imparable",         hint: "30 días de racha",                p: (a) => ({ cur: a.bestStreak, target: 30 }) },
+    // ---- Fuerza ----
+    { id: "firstPR",   tier: "bronze", icon: "⭐", name: "Marca personal",    hint: "Consigue tu primer récord",       p: (a) => ({ cur: a.hasStrength ? 1 : 0, target: 1 }) },
+    { id: "club100",   tier: "silver", icon: "💪", name: "Club de los 100",   hint: "100 kg en un básico (1RM est.)",  p: (a) => ({ cur: Math.round(a.bigLiftMax), target: 100 }) },
+    { id: "club140",   tier: "gold",   icon: "🦍", name: "Fuerza bruta",      hint: "140 kg en un básico",             p: (a) => ({ cur: Math.round(a.bigLiftMax), target: 140 }) },
+    { id: "club180",   tier: "legend", icon: "🐉", name: "Bestia",            hint: "180 kg en un básico",             p: (a) => ({ cur: Math.round(a.bigLiftMax), target: 180 }) },
+    { id: "club220",   tier: "legend", icon: "🏆", name: "Sobrehumano",       hint: "220 kg en un básico",             p: (a) => ({ cur: Math.round(a.bigLiftMax), target: 220 }) },
+    { id: "twiceBw",   tier: "gold",   icon: "⚖️", name: "El doble",          hint: "Sentadilla o peso muerto a 2× tu peso corporal", p: (a) => ({ cur: a.bwMult >= 2 ? 1 : 0, target: 1 }) },
+    { id: "prs10",     tier: "silver", icon: "🎖️", name: "Coleccionista",     hint: "Récord en 10 ejercicios distintos", p: (a) => ({ cur: a.prExercises, target: 10 }) },
+    // ---- Volumen ----
+    { id: "vol100k",   tier: "silver", icon: "🪨", name: "Montañas movidas",  hint: "100.000 kg de volumen total",     p: (a) => ({ cur: Math.round(a.totalVolume), target: 100 * K }) },
+    { id: "vol500k",   tier: "gold",   icon: "🌋", name: "Medio millón",      hint: "500.000 kg de volumen total",     p: (a) => ({ cur: Math.round(a.totalVolume), target: 500 * K }) },
+    { id: "vol1m",     tier: "legend", icon: "🌌", name: "El millón",         hint: "1.000.000 kg de volumen total",   p: (a) => ({ cur: Math.round(a.totalVolume), target: K * K }) },
+    { id: "vol5m",     tier: "legend", icon: "🌠", name: "Cinco millones",    hint: "5.000.000 kg de volumen total",   p: (a) => ({ cur: Math.round(a.totalVolume), target: 5 * K * K }) },
+    // ---- Variedad / rutinas ----
+    { id: "allGroups", tier: "silver", icon: "🎯", name: "Cuerpo completo",   hint: "Entrena los 8 grupos musculares", p: (a) => ({ cur: a.strengthGroups, target: 8 }) },
+    { id: "explorer",  tier: "silver", icon: "🧭", name: "Explorador",        hint: "Usa 30 ejercicios distintos",     p: (a) => ({ cur: a.distinctExercises, target: 30 }) },
+    { id: "architect", tier: "silver", icon: "📐", name: "Arquitecto",        hint: "Crea 5 rutinas propias",          p: (a) => ({ cur: a.templateCount, target: 5 }) },
+    { id: "shared",    tier: "bronze", icon: "🔗", name: "Compartir es vivir", hint: "Comparte una rutina",            p: (a) => ({ cur: a.hasShared ? 1 : 0, target: 1 }) },
+    // ---- Cardio ----
+    { id: "firstCardio",tier:"bronze", icon: "🏃", name: "A moverse",         hint: "Registra tu primer cardio",       p: (a) => ({ cur: a.hasCardio ? 1 : 0, target: 1 }) },
+    { id: "cardio42",  tier: "gold",   icon: "🥇", name: "Maratón acumulado", hint: "42 km de cardio en total",        p: (a) => ({ cur: Math.round(a.totalKm), target: 42 }) },
+    { id: "cardio100", tier: "gold",   icon: "🏅", name: "Fondista",          hint: "100 km de cardio en total",       p: (a) => ({ cur: Math.round(a.totalKm), target: 100 }) },
+    { id: "cardio250", tier: "legend", icon: "🏔️", name: "Ultra",             hint: "250 km de cardio en total",       p: (a) => ({ cur: Math.round(a.totalKm), target: 250 }) },
+    { id: "longRun",   tier: "silver", icon: "🛣️", name: "Salida larga",      hint: "10 km en una sola sesión",        p: (a) => ({ cur: Math.round(a.maxSessionKm), target: 10 }) },
+    { id: "cardio1000",tier: "gold",   icon: "⏱️", name: "Aguante",           hint: "1000 min de cardio en total",     p: (a) => ({ cur: Math.round(a.totalCardioMin), target: 1000 }) },
+  ];
+  // The 8 strength muscle groups that count toward "Cuerpo completo".
+  const STRENGTH_GROUPS = ["pecho", "espalda", "hombro", "biceps", "triceps", "pierna", "gluteo", "abdomen"];
+
+  // Lifts whose top load counts toward the "2× bodyweight" badge.
+  const BW_LIFT_RE = /(sentadilla|peso muerto)/i;
+
+  // Aggregate every stat the achievements need in a single pass over the data.
+  function achievementAggregates() {
+    const ws = DB.get().workouts || [];
+    let totalVolume = 0, totalKm = 0, totalCardioMin = 0, maxSessionKm = 0;
+    let hasStrength = false, hasCardio = false, bigLiftMax = 0, bwLiftMax = 0;
+    const groups = new Set();
+    const distinctEx = new Set();   // exercise ids ever performed
+    const prEx = new Set();         // ids with at least one completed strength set
+    ws.forEach((w) => {
+      let sessionKm = 0;
+      (w.entries || []).forEach((en) => {
+        const ex = DB.exerciseById(en.exerciseId);
+        if (!ex) return;
+        distinctEx.add(en.exerciseId);
+        if (ex.group === "cardio") {
+          hasCardio = true;
+          (en.sets || []).forEach((s) => { totalKm += Number(s.km) || 0; sessionKm += Number(s.km) || 0; totalCardioMin += Number(s.min) || 0; });
+        } else {
+          groups.add(ex.group);
+          const big = BIG_LIFT_RE.test(ex.name), bw = BW_LIFT_RE.test(ex.name);
+          (en.sets || []).forEach((s) => {
+            const wgt = Number(s.weight) || 0, reps = Number(s.reps) || 0;
+            if (wgt > 0 && reps > 0) { hasStrength = true; prEx.add(en.exerciseId); }
+            // Club-X uses estimated 1RM so a heavy triple counts, not just a true single.
+            if (big && wgt > 0 && reps > 0) bigLiftMax = Math.max(bigLiftMax, DB.estimate1RM(wgt, reps));
+            if (bw && wgt > 0 && reps > 0) bwLiftMax = Math.max(bwLiftMax, wgt);   // real load, not 1RM
+          });
+        }
+      });
+      if (sessionKm > maxSessionKm) maxSessionKm = sessionKm;
+      totalVolume += DB.workoutVolume(w);
+    });
+    // 2× bodyweight uses the heaviest logged weight, or the current one if any.
+    const bw = (DB.latestBodyweight() || {}).kg || 0;
+    return {
+      count: ws.length, totalVolume, totalKm, totalCardioMin, maxSessionKm,
+      hasStrength, hasCardio, bigLiftMax,
+      bwMult: bw > 0 ? bwLiftMax / bw : 0,
+      prExercises: prEx.size,
+      distinctExercises: distinctEx.size,
+      templateCount: (DB.get().templates || []).length,
+      hasShared: hasSharedRoutine(),
+      strengthGroups: [...groups].filter((g) => STRENGTH_GROUPS.includes(g)).length,
+      bestStreak: bestEverStreak(),
+    };
+  }
+  // "Compartir": no server round-trip to count, so we set a local flag the first
+  // time the user creates a share link (see the share flow). Persisted per user.
+  function sharedKey() {
+    const uid = global.Auth && global.Auth.uid;
+    return uid != null ? "gymandjam.hasShared.u" + uid : "gymandjam.hasShared";
+  }
+  function hasSharedRoutine() { try { return localStorage.getItem(sharedKey()) === "1"; } catch (_) { return false; } }
+  function markSharedRoutine() { try { localStorage.setItem(sharedKey(), "1"); } catch (_) {} checkAchievements(); }
+
+  // Longest run of consecutive training days ever (not just the current one),
+  // so a past hot streak still unlocks its badge.
+  function bestEverStreak() {
+    const dates = [...new Set((DB.get().workouts || []).map((w) => w.date).filter(Boolean))].sort();
+    let best = 0, run = 0, prev = null;
+    dates.forEach((d) => {
+      run = (prev && daysBetween(d, prev) === 1) ? run + 1 : 1;
+      if (run > best) best = run;
+      prev = d;
+    });
+    return best;
+  }
+
+  function computeAchievements() {
+    const agg = achievementAggregates();
+    return ACHIEVEMENTS.map((a) => {
+      const { cur, target } = a.p(agg);
+      return { ...a, cur: Math.min(cur, target), target, done: cur >= target };
+    });
+  }
+
+  // Locally-persisted set of ids whose unlock toast has already been shown.
+  function achKey() {
+    const uid = global.Auth && global.Auth.uid;
+    return uid != null ? "gymandjam.achievements.u" + uid : "gymandjam.achievements";
+  }
+  function readAnnounced() {
+    try { return new Set(JSON.parse(localStorage.getItem(achKey()) || "[]")); }
+    catch (_) { return new Set(); }
+  }
+  function writeAnnounced(set) {
+    try { localStorage.setItem(achKey(), JSON.stringify([...set])); } catch (_) {}
+  }
+  // Call once at boot: mark everything already-earned as announced WITHOUT any
+  // toast, so a veteran importing months of data isn't spammed with unlocks.
+  function primeAchievements() {
+    try {
+      if (localStorage.getItem(achKey()) != null) return;   // already primed
+    } catch (_) {}
+    const done = computeAchievements().filter((a) => a.done).map((a) => a.id);
+    writeAnnounced(new Set(done));
+  }
+  // Call after saving a workout: fire a toast for each newly-earned achievement.
+  function checkAchievements() {
+    const announced = readAnnounced();
+    const fresh = computeAchievements().filter((a) => a.done && !announced.has(a.id));
+    if (!fresh.length) return;
+    fresh.forEach((a, i) => {
+      announced.add(a.id);
+      setTimeout(() => achievementToast(a), 400 + i * 1400);   // stagger so several don't overlap
+    });
+    writeAnnounced(announced);
+  }
+
+  function achievementToast(a) {
+    const host = document.getElementById("toastHost");
+    if (!host) return;
+    const el = document.createElement("div");
+    el.className = "toast achievement tier-" + a.tier;
+    el.innerHTML = `<span class="ach-toast-medal">${a.icon}</span>
+      <span class="ach-toast-text"><b>¡Logro desbloqueado!</b><span>${escapeHtml(a.name)}</span></span>`;
+    host.appendChild(el);
+    if (navigator.vibrate) { try { navigator.vibrate([40, 60, 40]); } catch (_) {} }
+    setTimeout(() => {
+      el.style.transition = "opacity .35s, transform .35s";
+      el.style.opacity = "0"; el.style.transform = "translateY(10px)";
+      setTimeout(() => el.remove(), 350);
+    }, 3600);
+  }
+
+  // Stats card: medal grid with unlocked at full colour and locked greyed out
+  // with a progress bar. Sorted so freshly-unlocked/nearly-there float up.
+  function achievementsCard() {
+    const list = computeAchievements();
+    const doneN = list.filter((a) => a.done).length;
+    const sorted = [...list].sort((a, b) => {
+      if (a.done !== b.done) return a.done ? -1 : 1;               // earned first
+      if (a.done) return 0;
+      return (b.cur / b.target) - (a.cur / a.target);              // then closest to unlocking
+    });
+    const medals = sorted.map((a) => {
+      const pct = Math.round((a.cur / a.target) * 100);
+      const prog = a.done
+        ? `<div class="ach-earned">Conseguido</div>`
+        : `<div class="ach-prog"><div class="ach-bar"><i style="width:${pct}%"></i></div><span>${fmtNum(a.cur)}/${fmtNum(a.target)}</span></div>`;
+      return `<div class="ach-medal ${a.done ? "is-done tier-" + a.tier : "is-locked"}" title="${escapeHtml(a.hint)}">
+        <div class="ach-icon">${a.icon}</div>
+        <div class="ach-body"><div class="ach-name">${escapeHtml(a.name)}</div><div class="ach-hint">${escapeHtml(a.hint)}</div>${prog}</div>
+      </div>`;
+    }).join("");
+    const collapsed = achCollapsed();
+    return `<div class="card ach-card${collapsed ? " is-collapsed" : ""}" id="achCard">
+      <button type="button" class="ach-toggle" id="achToggle" aria-expanded="${!collapsed}">
+        <svg class="ach-chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <h3>Logros</h3><span class="hint">${doneN}/${list.length} desbloqueados</span>
+      </button>
+      <div class="ach-grid">${medals}</div>
+    </div>`;
+  }
+  // Collapse preference, persisted locally (per device — it's a UI choice).
+  // Collapsed by default: only an explicit "0" (user expanded it) keeps it open.
+  function achCollapsed() { try { return localStorage.getItem("gymandjam.achCollapsed") !== "0"; } catch (_) { return true; } }
+  function bindAchievements() {
+    const btn = document.getElementById("achToggle");
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      const card = document.getElementById("achCard");
+      const nowCollapsed = !card.classList.contains("is-collapsed");
+      card.classList.toggle("is-collapsed", nowCollapsed);
+      btn.setAttribute("aria-expanded", String(!nowCollapsed));
+      try { localStorage.setItem("gymandjam.achCollapsed", nowCollapsed ? "1" : "0"); } catch (_) {}
+    });
+  }
+
+  /* ============================================================
      VIEW: TODAY (session builder)
      ============================================================ */
   // Summary cells: strength → volume/series/exercises; cardio-only → time/distance/pace.
@@ -365,53 +590,84 @@
   function nameLooksUnilateral(name) { return UNILAT_RE.test(name || ""); }
   function isUnilateral(ex) { return !!ex && ex.group !== "cardio" && (ex.unilateral === true || nameLooksUnilateral(ex.name)); }
 
+  // Registration mode for an exercise:
+  //  "cardio"   → min / km
+  //  "bw"       → reps only (bodyweight, no external load)
+  //  "loadable" → added weight ("lastre") + reps
+  //  "weight"   → weight + reps (the default)
+  // Accepts either an exercise object or a bare group string (legacy callers).
+  function exMode(exOrGroup) {
+    if (typeof exOrGroup === "string") return isCardio(exOrGroup) ? "cardio" : "weight";
+    const ex = exOrGroup || {};
+    if (ex.group === "cardio") return "cardio";
+    if (ex.bw) return ex.loadable ? "loadable" : "bw";
+    return "weight";
+  }
   // Fields shown per exercise type: [{key, placeholder, step}]
-  function setFields(group) {
-    return isCardio(group)
-      ? [{ key: "min", ph: "min", step: "1" }, { key: "km", ph: "opcional", step: "0.1" }]
-      : [{ key: "weight", ph: "kg", step: "0.5" }, { key: "reps", ph: "reps", step: "1" }];
+  function setFields(exOrGroup) {
+    switch (exMode(exOrGroup)) {
+      case "cardio":   return [{ key: "min", ph: "min", step: "1" }, { key: "km", ph: "opcional", step: "0.1" }];
+      case "bw":       return [{ key: "reps", ph: "reps", step: "1" }];
+      case "loadable": return [{ key: "weight", ph: "+kg", step: "0.5" }, { key: "reps", ph: "reps", step: "1" }];
+      default:         return [{ key: "weight", ph: "kg", step: "0.5" }, { key: "reps", ph: "reps", step: "1" }];
+    }
   }
-  function setHeadLabels(group) {
-    return isCardio(group)
-      ? ["Tiempo (min)", 'Distancia (km) <span class="opt">opcional</span>']
-      : ["Peso (kg)", "Reps"];
+  function setHeadLabels(exOrGroup) {
+    switch (exMode(exOrGroup)) {
+      case "cardio":   return ["Tiempo (min)", 'Distancia (km) <span class="opt">opcional</span>'];
+      case "bw":       return ["Reps"];
+      case "loadable": return ["Lastre (+kg)", "Reps"];
+      default:         return ["Peso (kg)", "Reps"];
+    }
   }
-  function setHasData(group, s) {
-    return isCardio(group)
+  function setHasData(exOrGroup, s) {
+    return exMode(exOrGroup) === "cardio"
       ? (Number(s.min) > 0 || Number(s.km) > 0)
       : Number(s.reps) > 0;
   }
+  function isBwMode(exOrGroup) { const m = exMode(exOrGroup); return m === "bw" || m === "loadable"; }
   // Short, compact rendering of a set for "last time" / history.
-  function fmtSetShort(group, s) {
-    if (isCardio(group)) {
+  function fmtSetShort(exOrGroup, s) {
+    const mode = exMode(exOrGroup);
+    if (mode === "cardio") {
       const a = [];
       if (s.min) a.push(fmtNum(s.min) + " min");
       if (s.km) a.push(fmtNum(s.km) + " km");
       return a.join(" · ") || "—";
     }
-    let out = (s.side ? s.side + " " : "") + fmtNum(s.weight) + "×" + s.reps;
+    if (mode === "bw") return (s.side ? s.side + " " : "") + fmtNum(s.reps) + " reps";
+    // loadable: "+20×8"; plain weight: "60×8"
+    const w = mode === "loadable" ? "+" + fmtNum(s.weight) : fmtNum(s.weight);
+    let out = (s.side ? s.side + " " : "") + w + "×" + s.reps;
     if (hasDrops(s)) out += s.drops.map((d) => " → " + fmtNum(d.weight) + "×" + d.reps).join("");
     return out;
   }
   // Per-set summary cell (right of the inputs).
-  function setSummary(group, s) {
-    if (isCardio(group)) {
+  function setSummary(exOrGroup, s) {
+    const mode = exMode(exOrGroup);
+    if (mode === "cardio") {
       const a = [];
       if (s.km) a.push(fmtNum(s.km) + " km");
       else if (s.min) a.push(fmtNum(s.min) + " min");
       return a.join("");
     }
+    if (mode === "bw") return s.reps ? fmtNum(s.reps) + " reps" : "";
     return s.weight && s.reps ? fmtNum(DB.setVolume(s)) + " kg" : "";
   }
-  // Exercise header total: volume for strength, time·distance for cardio.
-  function entryTotal(group, entry) {
-    if (isCardio(group)) {
+  // Exercise header total: volume for strength, reps for bodyweight, time·distance for cardio.
+  function entryTotal(exOrGroup, entry) {
+    const mode = exMode(exOrGroup);
+    if (mode === "cardio") {
       let min = 0, km = 0;
       entry.sets.forEach((s) => { min += Number(s.min) || 0; km += Number(s.km) || 0; });
       const a = [];
       if (min) a.push(fmtNum(min) + " min");
       if (km) a.push(fmtNum(km) + " km");
       return a.join(" · ") || "—";
+    }
+    if (mode === "bw") {
+      const reps = entry.sets.reduce((a, s) => a + (Number(s.reps) || 0), 0);
+      return fmtNum(reps) + " reps";
     }
     return fmtNum(entry.sets.reduce((a, s) => a + DB.setVolume(s), 0)) + " kg";
   }
@@ -428,35 +684,48 @@
       if (!ex) return "";
       const g = G[ex.group] || { name: ex.group || "—", color: "#888", abbr: "?" };
       const cardio = isCardio(ex.group);
+      const bwOnly = exMode(ex) === "bw";   // reps-only: single field, no dropset
       const uni = isUnilateral(ex);
-      const fields = setFields(ex.group);
-      const [labA, labB] = setHeadLabels(ex.group);
+      const fields = setFields(ex);
+      // Render one <input> per field so 1-field (reps-only) and 2-field modes
+      // both work off the same source of truth.
+      const inputsFor = (obj, dropAttr) => fields.map((f) =>
+        `<input class="set-input" type="number" inputmode="decimal" min="0" step="${f.step}" placeholder="${f.ph}" value="${obj[f.key] ?? ""}" data-field="${f.key}"${dropAttr ? " data-drop" : ""}>`
+      ).join("");
+      const rowCls = bwOnly ? " bw" : "";
       const last = lastPerformance(en.exerciseId, draft.id);
       const lastHtml = last ? `<div class="last-time">
-        <span>Última vez</span>
-        ${last.sets.map((s) => fmtSetShort(ex.group, s)).join(" · ")}
-        <em>${new Date(last.date + "T00:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" }).replace(".", "")}</em>
-      </div>` : "";
+        <div class="last-time-when">
+          <span>Última vez</span>
+          <em>${new Date(last.date + "T00:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" }).replace(".", "")}</em>
+        </div>
+        <div class="last-time-sets">${last.sets.map((s) => `<span class="lts-set">${fmtSetShort(ex, s)}</span>`).join("")}</div>
+      </div>${last.note ? `<div class="last-note"><span>📝</span>${escapeHtml(last.note)}</div>` : ""}` : "";
+      // Per-exercise note for THIS session. The row is shown when a note exists
+      // (or the user opened it); the header 📝 toggles it. Kept out of the way.
+      const noteHtml = `<div class="ex-note-row${en.note ? "" : " hidden"}" data-ei="${ei}">
+        <input class="input ex-note-input" data-ei="${ei}" maxlength="140" placeholder="Nota para hoy · p. ej. «usé goma», «bajar el peso»" value="${escapeHtml(en.note || "")}">
+      </div>`;
       const setsHtml = en.sets.map((s, si) => {
         const isPR = !cardio && s.weight && s.reps && isPersonalRecord(en.exerciseId, s.weight, s.reps);
-        const dropsHtml = (!cardio && Array.isArray(s.drops) ? s.drops : []).map((d, dk) => `
-          <div class="drop-row" data-ei="${ei}" data-si="${si}" data-dk="${dk}">
+        // Dropsets stay available for loaded exercises (incl. lastre) but not for
+        // reps-only bodyweight, where a "lighter descuelgue" has no meaning.
+        const dropsHtml = (!cardio && !bwOnly && Array.isArray(s.drops) ? s.drops : []).map((d, dk) => `
+          <div class="drop-row${rowCls}" data-ei="${ei}" data-si="${si}" data-dk="${dk}">
             <span class="drop-mark" title="Descuelgue">↓</span>
             ${uni ? "<span></span>" : ""}
-            <input class="set-input" type="number" inputmode="decimal" min="0" step="${fields[0].step}" placeholder="${fields[0].ph}" value="${d[fields[0].key] ?? ""}" data-field="${fields[0].key}" data-drop>
-            <input class="set-input" type="number" inputmode="decimal" min="0" step="${fields[1].step}" placeholder="${fields[1].ph}" value="${d[fields[1].key] ?? ""}" data-field="${fields[1].key}" data-drop>
-            <div class="set-vol">${setSummary(ex.group, d)}</div>
+            ${inputsFor(d, true)}
+            <div class="set-vol">${setSummary(ex, d)}</div>
             <button class="icon-btn danger" data-action="del-drop" title="Quitar descuelgue"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
           </div>`).join("");
         return `<div class="set-group" data-ei="${ei}" data-si="${si}">
-          <div class="set-row" data-ei="${ei}" data-si="${si}">
+          <div class="set-row${rowCls}" data-ei="${ei}" data-si="${si}">
             <div class="set-idx">${si + 1}</div>
             ${uni ? `<button class="side-toggle${s.side ? " is-set" : ""}" data-action="side" title="Lado (Izq/Dcha)">${s.side || "·"}</button>` : ""}
-            <input class="set-input" type="number" inputmode="decimal" min="0" step="${fields[0].step}" placeholder="${fields[0].ph}" value="${s[fields[0].key] ?? ""}" data-field="${fields[0].key}">
-            <input class="set-input" type="number" inputmode="decimal" min="0" step="${fields[1].step}" placeholder="${fields[1].ph}" value="${s[fields[1].key] ?? ""}" data-field="${fields[1].key}">
-            <div class="set-vol">${setSummary(ex.group, s)} ${isPR ? '<span class="pr-tag">PR</span>' : ""}</div>
+            ${inputsFor(s, false)}
+            <div class="set-vol">${setSummary(ex, s)} ${isPR ? '<span class="pr-tag">PR</span>' : ""}</div>
             <div class="set-actions">
-              ${cardio ? "" : `<button class="icon-btn" data-action="add-drop" title="Dropset · añadir descuelgue"><svg viewBox="0 0 24 24"><path d="M12 5v11m0 0l-5-5m5 5l5-5M5 20h14" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`}
+              ${cardio || bwOnly ? "" : `<button class="icon-btn" data-action="add-drop" title="Dropset · añadir descuelgue"><svg viewBox="0 0 24 24"><path d="M12 5v11m0 0l-5-5m5 5l5-5M5 20h14" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`}
               <button class="icon-btn danger" data-action="del-set" title="Eliminar serie"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
             </div>
           </div>
@@ -466,22 +735,31 @@
 
       return `<div class="ex-block${uni ? " uni" : ""}" data-ei="${ei}">
         <div class="ex-head">
-          <span class="ex-dot" style="background:${g.color}"></span>
-          <div>
-            <div class="ex-name">${escapeHtml(ex.name)}</div>
-            <div class="ex-group">${g.name}</div>
+          <div class="ex-head-main">
+            <span class="ex-dot" style="background:${g.color}"></span>
+            <div class="ex-name-wrap">
+              <div class="ex-name">${escapeHtml(ex.name)}</div>
+              <div class="ex-group">${g.name}</div>
+            </div>
           </div>
-          <div class="ex-vol">${cardio ? "Total" : "Vol"} <b>${entryTotal(ex.group, en)}</b></div>
-          <div class="ex-move">
-            <button class="icon-btn" data-action="move-up" title="Subir" ${ei === 0 ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-            <button class="icon-btn" data-action="move-down" title="Bajar" ${ei === draft.entries.length - 1 ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <div class="ex-head-bar">
+            <div class="ex-vol">${cardio ? "Total" : "Vol"} <b>${entryTotal(ex, en)}</b></div>
+            <button class="ex-note-btn${en.note ? " has-note" : ""}" data-action="toggle-note" title="Nota del ejercicio"><svg viewBox="0 0 24 24"><path d="M4 5h13l3 3v11H4zM17 5v3h3M8 13h8M8 16h5" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Notas</span></button>
+            <div class="ex-menu-wrap">
+              <button class="icon-btn" data-action="ex-menu" title="Más opciones" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="19" r="1.7" fill="currentColor"/></svg></button>
+              <div class="ex-menu" role="menu">
+                <button class="ex-menu-item" data-action="move-up" ${ei === 0 ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Subir</button>
+                <button class="ex-menu-item" data-action="move-down" ${ei === draft.entries.length - 1 ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Bajar</button>
+                <button class="ex-menu-item" data-action="swap-entry"><svg viewBox="0 0 24 24"><path d="M4 7h13l-3-3M20 17H7l3 3" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Cambiar ejercicio</button>
+                <button class="ex-menu-item danger" data-action="del-entry"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v13a1 1 0 001 1h8a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>Quitar ejercicio</button>
+              </div>
+            </div>
           </div>
-          <button class="icon-btn" data-action="swap-entry" title="Cambiar ejercicio (mantiene las series)"><svg viewBox="0 0 24 24"><path d="M4 7h13l-3-3M20 17H7l3 3" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-          <button class="icon-btn danger" data-action="del-entry" title="Quitar ejercicio"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v13a1 1 0 001 1h8a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg></button>
         </div>
         ${lastHtml}
+        ${noteHtml}
         <div class="sets-table">
-          <div class="set-row set-head"><span></span>${uni ? "<span>Lado</span>" : ""}<span>${labA}</span><span>${labB}</span><span></span><span></span></div>
+          <div class="set-row set-head${rowCls}"><span></span>${uni ? "<span>Lado</span>" : ""}${setHeadLabels(ex).map((l) => `<span>${l}</span>`).join("")}<span></span><span></span></div>
           ${setsHtml}
           <button class="add-set-btn" data-action="add-set">+ Añadir serie</button>
           ${cardio ? '<div class="set-hint">La distancia es opcional — registra el tiempo y, si quieres, completa los km al terminar.</div>' : ""}
@@ -545,8 +823,32 @@
     wrap.addEventListener("input", onEntryInput);
     wrap.addEventListener("click", onEntryClick);
   }
+  // Close any open per-exercise "⋯" menu.
+  function closeExMenus() {
+    $$(".ex-menu-wrap.open").forEach((w) => {
+      w.classList.remove("open");
+      const b = w.querySelector('[data-action="ex-menu"]');
+      if (b) b.setAttribute("aria-expanded", "false");
+    });
+  }
+  // A click anywhere outside an open menu closes it. Registered once.
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".ex-menu-wrap")) closeExMenus();
+  });
 
   function onEntryInput(e) {
+    // Per-exercise note (this session). Stored on the entry; empty → removed so
+    // it doesn't clutter the saved workout.
+    const noteInput = e.target.closest(".ex-note-input");
+    if (noteInput) {
+      const ei = +noteInput.dataset.ei;
+      const val = noteInput.value.trim();
+      if (val) draft.entries[ei].note = val; else delete draft.entries[ei].note;
+      const nb = noteInput.closest(".ex-block").querySelector(".ex-note-btn");
+      if (nb) nb.classList.toggle("has-note", !!val);
+      saveDraft();
+      return;
+    }
     const input = e.target.closest(".set-input");
     if (!input) return;
     const isDrop = input.hasAttribute("data-drop");
@@ -562,19 +864,19 @@
     const rowVol = row.querySelector(".set-vol");
     if (rowVol) {
       const pr = !isDrop && !isCardio(group) && s.weight && s.reps && isPersonalRecord(draft.entries[ei].exerciseId, s.weight, s.reps);
-      rowVol.innerHTML = setSummary(group, target) + (pr ? ' <span class="pr-tag">PR</span>' : "");
+      rowVol.innerHTML = setSummary(ex, target) + (pr ? ' <span class="pr-tag">PR</span>' : "");
     }
     // …and, when a drop changed, the parent set's total too (it sums drops).
     if (isDrop) {
       const mainVol = row.closest(".set-group").querySelector(".set-row .set-vol");
       if (mainVol) {
         const pr = !isCardio(group) && s.weight && s.reps && isPersonalRecord(draft.entries[ei].exerciseId, s.weight, s.reps);
-        mainVol.innerHTML = setSummary(group, s) + (pr ? ' <span class="pr-tag">PR</span>' : "");
+        mainVol.innerHTML = setSummary(ex, s) + (pr ? ' <span class="pr-tag">PR</span>' : "");
       }
     }
     // Update exercise header total
     const block = row.closest(".ex-block");
-    if (block) block.querySelector(".ex-vol b").textContent = entryTotal(group, draft.entries[ei]);
+    if (block) block.querySelector(".ex-vol b").textContent = entryTotal(ex, draft.entries[ei]);
     saveDraft();
   }
 
@@ -582,6 +884,17 @@
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
     const action = btn.dataset.action;
+
+    // Toggle the per-exercise "⋯" menu. Close any other open menu first.
+    if (action === "ex-menu") {
+      const wrap = btn.closest(".ex-menu-wrap");
+      const isOpen = wrap.classList.contains("open");
+      closeExMenus();
+      if (!isOpen) { wrap.classList.add("open"); btn.setAttribute("aria-expanded", "true"); }
+      return;
+    }
+    // Any other action closes an open menu (the item lives inside it).
+    closeExMenus();
 
     if (action === "add-set") {
       const ei = +btn.closest(".ex-block").dataset.ei;
@@ -624,6 +937,14 @@
       draft.entries[ei].sets.splice(si, 1);
       if (!draft.entries[ei].sets.length) draft.entries[ei].sets.push(newSetFor(ex ? ex.group : ""));
       refreshEntries();
+    } else if (action === "toggle-note") {
+      const block = btn.closest(".ex-block");
+      const row = block.querySelector(".ex-note-row");
+      if (row) {
+        const nowHidden = !row.classList.contains("hidden");
+        row.classList.toggle("hidden", nowHidden);
+        if (!nowHidden) { const inp = row.querySelector(".ex-note-input"); if (inp) inp.focus(); }
+      }
     } else if (action === "swap-entry") {
       openSwapPicker(+btn.closest(".ex-block").dataset.ei);
     } else if (action === "del-entry") {
@@ -772,6 +1093,7 @@
 
     DB.saveWorkout(draft);
     toast(draft.id ? "Entreno actualizado" : "¡Entreno guardado! 💪", "success");
+    checkAchievements();          // fire unlock toasts for any newly-earned logros
     draft = newDraft();
     saveDraft();
     setView("history");
@@ -837,7 +1159,7 @@
     for (const w of ws) {
       if (excludeId && w.id === excludeId) continue;
       const en = (w.entries || []).find((e) => e.exerciseId === exerciseId);
-      if (en && en.sets.length) return { date: w.date, sets: en.sets };
+      if (en && en.sets.length) return { date: w.date, sets: en.sets, note: en.note || "" };
     }
     return null;
   }
@@ -912,7 +1234,8 @@
   function openTemplatePicker() {
     const tpls = DB.sortedTemplates();
     if (!tpls.length) { toast("Aún no tienes rutinas guardadas", "info"); return; }
-    const rows = tpls.map((t) => {
+
+    const reuseItem = (t) => {
       const tags = (t.groups || []).map((k) => {
         const g = G[k]; return g ? `<span class="g-tag" style="background:${g.color}">${g.name}</span>` : "";
       }).join("");
@@ -925,7 +1248,25 @@
         </span>
         <svg viewBox="0 0 24 24" width="18" height="18"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>`;
-    }).join("");
+    };
+
+    // Group by folder: loose routines first, then a collapsible section per
+    // folder (remembers open/closed like the Routines view).
+    const byFolder = {}; const loose = [];
+    tpls.forEach((t) => { if (t.folder) (byFolder[t.folder] = byFolder[t.folder] || []).push(t); else loose.push(t); });
+    const folders = Object.keys(byFolder).sort((a, b) => a.localeCompare(b, "es"));
+    const chevron = '<svg class="folder-chevron" viewBox="0 0 24 24" width="16" height="16"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const folderIcon = '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+    let listHtml = "";
+    if (loose.length) listHtml += `<div class="picker-list">${loose.map(reuseItem).join("")}</div>`;
+    folders.forEach((f) => {
+      listHtml += `<details class="folder picker-folder" data-folder="${escapeHtml(f)}" ${isFolderOpen(f) ? "open" : ""}>
+        <summary class="folder-head">${chevron}${folderIcon}<span class="folder-name">${escapeHtml(f)}</span><span class="count-pill">${byFolder[f].length}</span></summary>
+        <div class="picker-list" style="margin-top:8px">${byFolder[f].map(reuseItem).join("")}</div>
+      </details>`;
+    });
+
     const warn = draft.entries.length
       ? `<p style="color:var(--neg)">Se reemplazará el entreno que tienes ahora sin guardar.</p>`
       : `<p>Se cargará con sus pesos y reps de referencia para que solo ajustes los números.</p>`;
@@ -934,10 +1275,12 @@
         <div><h2>Usar una rutina</h2>${warn}</div>
         <button class="icon-btn" id="closeUseTpl"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       </div>
-      <div class="picker-list">${rows}</div>
+      ${listHtml}
     `);
     $("#closeUseTpl").addEventListener("click", closeModal);
     $$(".reuse-item").forEach((it) => it.addEventListener("click", () => useTemplate(it.dataset.tpl)));
+    // Persist folder open/closed state, shared with the Routines view.
+    $$("details.picker-folder").forEach((d) => d.addEventListener("toggle", () => setFolderOpen(d.dataset.folder, d.open)));
   }
 
   function templateFromWorkout(id) {
@@ -1088,6 +1431,7 @@
   }
 
   function shareLinkModal(name, code, folderCount) {
+    markSharedRoutine();   // unlock the "Compartir es vivir" achievement
     const isFolder = folderCount > 0;
     const link = location.origin + "/?rutina=" + code;
     openModal(`
@@ -1365,8 +1709,11 @@
       const ex = DB.exerciseById(en.exerciseId);
       if (!ex) return "";
       const g = G[ex.group] || { name: ex.group || "—", color: "#888" };
+      const bw = isBwMode(ex);
       const pills = en.sets.map((s) => isCardio(ex.group)
         ? `<span class="set-pill">${s.min ? `<b>${fmtNum(s.min)}</b> min` : ""}${s.min && s.km ? " · " : ""}${s.km ? `<b>${fmtNum(s.km)}</b> km` : ""}</span>`
+        : bw
+        ? `<span class="set-pill">${s.side ? `<span class="side-badge">${s.side}</span> ` : ""}${exMode(ex) === "loadable" && s.weight ? `+<b>${fmtNum(s.weight)}</b>kg × ` : ""}<b>${s.reps || 0}</b> reps</span>`
         : `<span class="set-pill${hasDrops(s) ? " has-drops" : ""}">${s.side ? `<span class="side-badge">${s.side}</span> ` : ""}<b>${fmtNum(s.weight)}</b>kg × <b>${s.reps}</b>${hasDrops(s) ? s.drops.map((d) => `<span class="drop-seg">↓ <b>${fmtNum(d.weight)}</b>×<b>${d.reps}</b></span>`).join("") : ""}</span>`
       ).join("");
       let pacePill = "";
@@ -1378,6 +1725,7 @@
       return `<div class="history-ex">
         <div class="history-ex-name"><span class="ex-dot" style="background:${g.color}"></span>${escapeHtml(ex.name)}</div>
         <div class="history-sets">${pills}${pacePill}</div>
+        ${en.note ? `<div class="history-note"><span>📝</span>${escapeHtml(en.note)}</div>` : ""}
       </div>`;
     }).join("");
 
@@ -1462,6 +1810,7 @@
           <p class="subtitle">Tu rendimiento de un vistazo. Los números no mienten.</p>
         </div>
         ${heatmapCard()}
+        ${achievementsCard()}
         <div class="seg" id="statsSeg">
           <button class="seg-btn ${statsTab === "fuerza" ? "is-active" : ""}" data-tab="fuerza">Fuerza</button>
           <button class="seg-btn ${statsTab === "cardio" ? "is-active" : ""}" data-tab="cardio">Cardio</button>
@@ -1470,6 +1819,7 @@
       </div>`;
 
     bindHeatmap();
+    bindAchievements();
     $$("#statsSeg .seg-btn").forEach((b) => b.addEventListener("click", () => {
       if (statsTab === b.dataset.tab) return;
       statsTab = b.dataset.tab;
@@ -3166,6 +3516,8 @@
     const workouts = DB.get().workouts || [];
     const days = new Set(workouts.map((w) => w.date).filter(Boolean)).size;
     const totalVol = workouts.reduce((a, w) => a + DB.workoutVolume(w), 0);
+    const ach = computeAchievements();
+    const achDone = ach.filter((a) => a.done).length;
     const backend = isBackend();
 
     openModal(`
@@ -3182,7 +3534,7 @@
       <div class="profile-stats">
         <div><b>${workouts.length}</b><span>entrenos</span></div>
         <div><b>${days}</b><span>días</span></div>
-        <div><b>${computeStreak()}</b><span>racha</span></div>
+        <div><b>${achDone}<small>/${ach.length}</small></b><span>logros</span></div>
         <div><b>${Charts.fmt(totalVol)}</b><span>kg vol</span></div>
       </div>
       ${backend ? `<div class="profile-sync">
@@ -3308,6 +3660,7 @@
   function boot() {
     document.documentElement.classList.remove("auth-pending");   // reveal the app shell
     DB.load();
+    primeAchievements();   // baseline already-earned logros silently (no unlock spam)
     draft = loadDraft() || newDraft();
     // Re-render current view when the theme changes (recolors charts).
     global.__onThemeChange = function () { render(); };

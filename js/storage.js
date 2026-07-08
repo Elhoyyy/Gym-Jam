@@ -32,18 +32,24 @@
     ["Aperturas con mancuernas", "pecho"], ["Aperturas inclinadas con mancuernas", "pecho"],
     ["Aperturas en máquina (peck deck)", "pecho"], ["Cruce de poleas (alto)", "pecho"],
     ["Cruce de poleas (medio)", "pecho"], ["Cruce de poleas (bajo)", "pecho"],
-    ["Fondos en paralelas", "pecho"], ["Fondos en máquina asistida", "pecho"],
-    ["Flexiones", "pecho"], ["Pullover con mancuerna", "pecho"],
+    ["Fondos en paralelas", "pecho", { bw: true }], ["Fondos en paralelas con lastre", "pecho", { bw: true, loadable: true }],
+    ["Fondos en máquina asistida", "pecho"],
+    ["Flexiones", "pecho", { bw: true }], ["Pullover con mancuerna", "pecho"],
 
     // ---- Espalda ----
-    ["Dominadas", "espalda"], ["Dominadas supinas (chin-up)", "espalda"],
-    ["Dominadas agarre estrecho", "espalda"], ["Dominadas asistidas", "espalda"],
+    ["Dominadas", "espalda", { bw: true }], ["Dominada con lastre", "espalda", { bw: true, loadable: true }],
+    ["Dominadas supinas (chin-up)", "espalda", { bw: true }],
+    ["Dominadas agarre estrecho", "espalda", { bw: true }], ["Dominadas asistidas", "espalda"],
     ["Jalón al pecho", "espalda"], ["Jalón agarre estrecho", "espalda"],
     ["Jalón agarre supino", "espalda"], ["Jalón unilateral en polea", "espalda"],
+    ["Jalón con agarre en V", "espalda"], ["Jalón tras nuca", "espalda"],
     ["Remo con barra", "espalda"], ["Remo Pendlay", "espalda"],
-    ["Remo con mancuerna", "espalda"], ["Remo en máquina", "espalda"],
+    ["Remo a 45° con barra (Yates)", "espalda"],
+    ["Remo con mancuerna", "espalda"], ["Remo inclinado en banco (mancuernas)", "espalda"],
+    ["Remo en máquina", "espalda"],
     ["Remo en polea baja", "espalda"], ["Remo en punta (T-bar)", "espalda"],
-    ["Remo Gironda (al pecho)", "espalda"], ["Peso muerto convencional", "espalda"],
+    ["Remo Gironda (al pecho)", "espalda"], ["Remo invertido", "espalda", { bw: true }],
+    ["Peso muerto convencional", "espalda"],
     ["Peso muerto sumo", "espalda"], ["Pullover en polea", "espalda"],
     ["Encogimientos con barra", "espalda"], ["Encogimientos con mancuernas", "espalda"],
     ["Hiperextensiones lumbares", "espalda"],
@@ -127,8 +133,8 @@
 
   /* --- Default state ---------------------------------------- */
   function seedExercises() {
-    return DEFAULT_EXERCISES.map(([name, group]) => ({
-      id: uid(), name, group, custom: false,
+    return DEFAULT_EXERCISES.map(([name, group, flags]) => ({
+      id: uid(), name, group, custom: false, ...(flags || {}),
     }));
   }
 
@@ -168,16 +174,37 @@
       state.exercises.map((e) => (e.name || "").toLowerCase() + "|" + e.group)
     );
     let added = 0;
-    DEFAULT_EXERCISES.forEach(([name, group]) => {
+    DEFAULT_EXERCISES.forEach(([name, group, flags]) => {
       const key = name.toLowerCase() + "|" + group;
       if (!seen.has(key)) {
-        state.exercises.push({ id: uid(), name, group, custom: false });
+        state.exercises.push({ id: uid(), name, group, custom: false, ...(flags || {}) });
         seen.add(key);
         added++;
+      } else if (flags && flags.bw) {
+        // Backfill the bodyweight flag onto a pre-existing default exercise
+        // (e.g. "Dominadas" saved before this flag existed) so it switches to
+        // reps-only. Custom user exercises are left untouched.
+        const ex = state.exercises.find((e) => !e.custom && (e.name || "").toLowerCase() === name.toLowerCase() && e.group === group);
+        if (ex && !ex.bw) { ex.bw = true; if (flags.loadable) ex.loadable = true; invalidateEx(); }
       }
     });
     if (added) invalidateEx();
     return added;
+  }
+
+  // Strip the stored `weight` from already-saved sets of bodyweight exercises
+  // (reps-only). Runs once per state load; keeps drops' weights off too. Returns
+  // the number of sets changed so callers can persist if anything moved.
+  function migrateBodyweightSets() {
+    let changed = 0;
+    const isBw = (id) => { const e = exerciseById(id); return e && e.bw && !e.loadable; };
+    const strip = (s) => {
+      if (s.weight !== undefined && s.weight !== "" && Number(s.weight) !== 0) { s.weight = ""; changed++; }
+      if (Array.isArray(s.drops)) s.drops.forEach((d) => { if (d.weight !== undefined && d.weight !== "" && Number(d.weight) !== 0) { d.weight = ""; changed++; } });
+    };
+    (state.workouts || []).forEach((w) => (w.entries || []).forEach((en) => { if (isBw(en.exerciseId)) (en.sets || []).forEach(strip); }));
+    (state.templates || []).forEach((t) => (t.entries || []).forEach((en) => { if (isBw(en.exerciseId)) (en.sets || []).forEach(strip); }));
+    return changed;
   }
 
   // Normalize a raw state object into a valid state (in place on `state`).
@@ -197,7 +224,9 @@
       if (!state.nutrition.water || typeof state.nutrition.water !== "object") state.nutrition.water = {};
     }
     if (!Array.isArray(state.bodyweight)) state.bodyweight = [];
-    return mergeDefaults();
+    const added = mergeDefaults();               // also backfills bw flags
+    const migrated = migrateBodyweightSets();    // strip weight from bw sets
+    return added + migrated;                     // >0 → caller persists
   }
 
   function load() {
@@ -279,8 +308,10 @@
       .map((en) => {
         const ex = exerciseById(en.exerciseId);
         const cardio = ex && ex.group === "cardio";
+        const note = typeof en.note === "string" ? en.note.trim() : "";
         return {
           exerciseId: en.exerciseId,
+          ...(note ? { note } : {}),
           sets: (en.sets || [])
             .filter((s) =>
               cardio

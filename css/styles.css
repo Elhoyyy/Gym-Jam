@@ -22,6 +22,7 @@
 
   --pos: #2e7d46;
   --neg: #c23a24;
+  --gold: #b8892f;
 
   --solid: #1b1a16;
   --on-solid: #ffffff;
@@ -56,6 +57,7 @@
 
   --pos: #4bb56e;
   --neg: #e56750;
+  --gold: #d9a441;
 
   --solid: #2c2820;
   --on-solid: #f2eee5;
@@ -205,6 +207,29 @@ h1, h2, h3, .brand-name, .display, .stat-value, .num { font-family: "Space Grote
 .icon-btn.danger:hover { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 40%, var(--border)); background: var(--danger-soft); }
 .icon-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 .ex-move { display: flex; gap: 4px; }
+/* Per-exercise "⋯" menu */
+.ex-menu-wrap { position: relative; flex-shrink: 0; }
+.ex-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 20;
+  width: max-content; min-width: 180px;
+  /* Never spill past the card's right/left padding on narrow screens. */
+  max-width: min(220px, calc(100vw - 40px));
+  padding: 6px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  display: none; flex-direction: column; gap: 2px;
+}
+.ex-menu-wrap.open .ex-menu { display: flex; }
+.ex-menu-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 11px; border: none; border-radius: var(--radius-xs);
+  background: none; color: var(--ink); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer;
+}
+.ex-menu-item svg { width: 17px; height: 17px; flex-shrink: 0; color: var(--text-dim); }
+.ex-menu-item:hover { background: var(--surface-2); }
+.ex-menu-item:disabled { opacity: 0.4; cursor: default; }
+.ex-menu-item.danger { color: var(--neg); }
+.ex-menu-item.danger svg { color: var(--neg); }
 
 /* ============================================================
    Cards
@@ -279,18 +304,56 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .empty-hint b { color: var(--ink); font-weight: 700; }
 
 /* Exercise block */
-.ex-block { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
+/* No `overflow:hidden` here: it would clip the per-exercise "⋯" menu that
+   opens over the sets. The header carries its own top rounding instead. */
+.ex-block { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .ex-block + .ex-block { margin-top: 12px; }
-.ex-head { display: flex; align-items: center; gap: 12px; padding: 13px 15px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
-.ex-head .ex-dot { width: 8px; height: 28px; border-radius: 3px; flex-shrink: 0; }
-.ex-head .ex-name { font-weight: 600; font-size: 15px; color: var(--ink); }
+/* Two-row header: the name gets the full width on its own row, and the volume
+   + actions (Notas, ⋯) sit on a second row below. This keeps a long name from
+   being squeezed into many narrow lines on mobile. */
+.ex-head { padding: 12px 15px; background: var(--surface-2); border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+.ex-head-main { display: flex; align-items: flex-start; gap: 12px; }
+.ex-head .ex-dot { width: 8px; height: 20px; border-radius: 3px; flex-shrink: 0; margin-top: 1px; }
+.ex-head .ex-name-wrap { flex: 1 1 auto; min-width: 0; }
+.ex-head .ex-name {
+  font-weight: 600; font-size: 15px; color: var(--ink); line-height: 1.25;
+  overflow-wrap: anywhere; word-break: break-word;
+}
 .ex-head .ex-group { font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; margin-top: 1px; }
-.ex-head .ex-vol { margin-left: auto; font-size: 12px; color: var(--text-dim); }
+.ex-head-bar { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding-left: 20px; }
+.ex-head .ex-vol { font-size: 12px; color: var(--text-dim); white-space: nowrap; margin-right: auto; }
 .ex-head .ex-vol b { color: var(--ink); font-family: "Space Grotesk"; font-size: 14px; font-variant-numeric: tabular-nums; }
 
-.last-time { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 15px 0; font-size: 12.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
-.last-time > span { font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-faint); background: var(--surface-3); padding: 3px 8px; border-radius: 5px; }
-.last-time em { font-style: normal; color: var(--text-faint); margin-left: auto; font-size: 11.5px; }
+/* "Última vez": label + date stacked on the left, previous sets on the right. */
+.last-time { display: flex; align-items: flex-start; gap: 12px; padding: 10px 15px 0; font-size: 12.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.last-time-when { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; flex-shrink: 0; }
+.last-time-when > span { font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-faint); background: var(--surface-3); padding: 3px 8px; border-radius: 5px; }
+.last-time-when em { font-style: normal; color: var(--text-faint); font-size: 11.5px; }
+.last-time-sets { margin-left: auto; text-align: right; line-height: 1.6; }
+/* Each set is unbreakable; the "·" separator rides on the left of every set
+   except the first, so it never dangles at the end of a wrapped line. */
+.last-time-sets .lts-set { white-space: nowrap; }
+.last-time-sets .lts-set + .lts-set::before { content: "·"; margin: 0 6px; color: var(--text-faint); }
+/* Previous session's note, shown under "Última vez" as a hint. */
+.last-note { display: flex; align-items: baseline; gap: 6px; padding: 4px 15px 0; font-size: 12.5px; color: var(--text-dim); font-style: italic; }
+.last-note span { font-style: normal; flex-shrink: 0; }
+/* Per-exercise note row (editable, this session) */
+.ex-note-row { padding: 10px 15px 0; }
+.ex-note-row.hidden { display: none; }
+.ex-note-input { font-size: 13.5px; padding: 8px 12px; }
+/* "Notas" button in the exercise header — text + icon, matches .icon-btn framing. */
+.ex-note-btn {
+  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+  height: 32px; padding: 0 11px; border-radius: var(--radius-xs);
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-dim);
+  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: all 0.14s;
+}
+.ex-note-btn svg { width: 15px; height: 15px; }
+.ex-note-btn:hover { color: var(--ink); border-color: var(--border-strong); }
+.ex-note-btn.has-note { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+/* Note in history */
+.history-note { display: flex; align-items: baseline; gap: 6px; margin-top: 7px; font-size: 12.5px; color: var(--text-dim); font-style: italic; }
+.history-note span { font-style: normal; flex-shrink: 0; }
 
 .reuse-item { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; padding: 12px 14px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius-sm); cursor: pointer; transition: all 0.13s; }
 .reuse-item:hover { border-color: var(--border-strong); background: var(--surface-2); }
@@ -328,6 +391,10 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 
 .sets-table { padding: 4px 12px 12px; }
 .set-row { display: grid; grid-template-columns: 30px 1fr 1fr auto auto; gap: 10px; align-items: center; padding: 6px 2px; }
+/* Bodyweight (reps-only) exercises: a single input column instead of two. */
+.set-row.bw { grid-template-columns: 30px 1fr auto auto; }
+.ex-block.uni .set-row.bw { grid-template-columns: 30px auto 1fr auto auto; }
+.drop-row.bw { grid-template-columns: 30px 1fr auto auto; }
 .set-row.set-head { padding-bottom: 2px; padding-top: 10px; }
 .set-row.set-head span { font-size: 10.5px; color: var(--text-faint); font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; }
 .set-row.set-head .opt { display: inline-block; margin-left: 5px; padding: 1px 6px; border-radius: 5px; background: var(--surface-3); color: var(--text-dim); font-weight: 600; letter-spacing: 0.2px; text-transform: none; }
@@ -384,6 +451,11 @@ textarea.input { resize: vertical; min-height: 46px; width: 100%; }
 .picker-search input { width: 100%; padding-left: 38px; }
 .picker-search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px; color: var(--text-faint); }
 .picker-list { display: flex; flex-direction: column; gap: 4px; max-height: 46vh; overflow-y: auto; padding-right: 4px; }
+/* Inside the routine picker, folders provide the scroll boundary (the modal
+   scrolls) — nested per-list scrollbars would stack awkwardly. */
+.picker-folder .picker-list { max-height: none; overflow: visible; padding-right: 0; }
+.picker-folder { margin-bottom: 10px; }
+.picker-folder > .folder-head .folder-name { font-weight: 600; }
 .picker-group-label { font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin: 14px 2px 4px; display: flex; align-items: center; gap: 7px; }
 .picker-group-label::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: currentColor; }
 .picker-item {
@@ -669,6 +741,71 @@ html.auth-pending .theme-toggle { display: none !important; }
 .toast.error .t-icon { background: var(--accent); color: #fff; }
 .toast.info .t-icon { background: color-mix(in srgb, var(--on-solid) 18%, transparent); color: var(--on-solid); }
 @keyframes toastIn { from { opacity: 0; transform: translateY(16px); } }
+
+/* Achievement unlock toast — gold, with a bigger medal glyph. */
+.toast.achievement {
+  gap: 13px; padding: 13px 18px;
+  background: linear-gradient(135deg, #2a2620, #1b1a16);
+  border: 1px solid #b8892f;
+  box-shadow: var(--shadow), 0 0 0 1px color-mix(in srgb, #d9a441 40%, transparent);
+  color: #f4ead2;
+}
+.toast.achievement .ach-toast-medal { font-size: 24px; line-height: 1; flex-shrink: 0; filter: drop-shadow(0 1px 2px rgba(0,0,0,.4)); }
+.toast.achievement .ach-toast-text { display: flex; flex-direction: column; line-height: 1.25; }
+.toast.achievement .ach-toast-text b { font-size: 12px; letter-spacing: 0.4px; color: #d9a441; text-transform: uppercase; font-weight: 700; }
+.toast.achievement .ach-toast-text span { font-size: 14.5px; font-weight: 600; color: #f7efdc; }
+.toast.achievement.tier-legend { border-color: #7c5cff; box-shadow: var(--shadow), 0 0 0 1px color-mix(in srgb, #7c5cff 45%, transparent); }
+.toast.achievement.tier-legend .ach-toast-text b { color: #b7a4ff; }
+
+/* ============================================================
+   Achievements (Stats card)
+   ============================================================ */
+.ach-card { padding: 22px; margin-bottom: 22px; }
+.ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.ach-medal {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 13px 14px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--surface-2);
+  transition: transform .15s ease, border-color .15s ease;
+}
+.ach-medal.is-done { border-color: color-mix(in srgb, var(--gold, #c79a3e) 55%, var(--border)); background: color-mix(in srgb, var(--gold, #c79a3e) 8%, var(--surface-2)); }
+.ach-medal.is-locked { opacity: 0.62; }
+.ach-icon {
+  width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
+  display: grid; place-items: center; font-size: 21px; line-height: 1;
+  background: var(--surface); border: 1px solid var(--border);
+}
+.ach-medal.is-locked .ach-icon { filter: grayscale(1); }
+.ach-medal.is-done .ach-icon { background: color-mix(in srgb, var(--gold, #c79a3e) 18%, var(--surface)); border-color: color-mix(in srgb, var(--gold, #c79a3e) 45%, var(--border)); }
+/* Per-tier accent on the medal frame */
+.ach-medal.tier-silver .ach-icon { background: color-mix(in srgb, #9aa4b2 20%, var(--surface)); border-color: color-mix(in srgb, #9aa4b2 45%, var(--border)); }
+.ach-medal.tier-gold   .ach-icon { background: color-mix(in srgb, #d9a441 20%, var(--surface)); border-color: color-mix(in srgb, #d9a441 50%, var(--border)); }
+.ach-medal.tier-legend { border-color: color-mix(in srgb, #7c5cff 50%, var(--border)); background: color-mix(in srgb, #7c5cff 8%, var(--surface-2)); }
+.ach-medal.tier-legend .ach-icon { background: color-mix(in srgb, #7c5cff 20%, var(--surface)); border-color: color-mix(in srgb, #7c5cff 50%, var(--border)); }
+.ach-body { min-width: 0; flex: 1; }
+.ach-name { font-size: 14px; font-weight: 700; color: var(--ink); }
+.ach-hint { font-size: 11.5px; color: var(--text-faint); margin: 1px 0 7px; line-height: 1.3; }
+.ach-earned { font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: color-mix(in srgb, var(--gold, #c79a3e) 90%, var(--ink)); }
+.ach-medal.tier-legend .ach-earned { color: #8f79f0; }
+.ach-prog { display: flex; align-items: center; gap: 8px; }
+.ach-bar { flex: 1; height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; }
+.ach-bar i { display: block; height: 100%; border-radius: 3px; background: var(--text-faint); }
+.ach-prog span { font-size: 11px; font-weight: 600; color: var(--text-faint); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+/* Collapsible header + fold */
+.ach-toggle {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: none; border: none; padding: 0; margin-bottom: 14px;
+  cursor: pointer; color: inherit; text-align: left;
+}
+.ach-toggle h3 { font-size: 15px; font-weight: 600; color: var(--ink); }
+.ach-toggle .hint { font-size: 11.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600; margin-left: auto; }
+.ach-chev { width: 18px; height: 18px; color: var(--text-faint); transition: transform .2s ease; flex-shrink: 0; }
+.ach-card.is-collapsed .ach-chev { transform: rotate(-90deg); }
+.ach-card.is-collapsed .ach-grid { display: none; }
+.ach-card.is-collapsed { padding-bottom: 22px; }
+.ach-card.is-collapsed .ach-toggle { margin-bottom: 0; }
+/* Logros counter in the profile stat row */
+.profile-stats b small { font-size: 0.62em; font-weight: 600; color: var(--text-faint); }
 
 /* ============================================================
    Auth screen
@@ -1070,6 +1207,9 @@ html.auth-pending .theme-toggle { display: none !important; }
   .ex-block.uni .set-row { grid-template-columns: 28px auto 1fr 1fr auto; }
   .drop-row { grid-template-columns: 28px 1fr 1fr auto; }
   .ex-block.uni .drop-row { grid-template-columns: 28px auto 1fr 1fr auto; }
+  .set-row.bw { grid-template-columns: 28px 1fr auto; }
+  .ex-block.uni .set-row.bw { grid-template-columns: 28px auto 1fr auto; }
+  .drop-row.bw { grid-template-columns: 28px 1fr auto; }
   .set-vol { display: none; }
   .summary-cell { min-width: 33%; }
   /* History action buttons wrap instead of overflowing to the right */
