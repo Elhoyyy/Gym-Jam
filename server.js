@@ -48,6 +48,49 @@ db.exec(`
     created_at INTEGER NOT NULL,
     uses       INTEGER NOT NULL DEFAULT 0
   );
+  -- Friendship is stored as a single row per pair, always with the lower user id
+  -- in "a". Storing one row (instead of two mirrored ones) makes "unfriend" a
+  -- single DELETE that can't half-fail and leave a one-way link behind.
+  CREATE TABLE IF NOT EXISTS friends (
+    a          INTEGER NOT NULL,
+    b          INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (a, b)
+  );
+  -- Single-use, expiring invite codes. The issuer hands the code over out of
+  -- band (WhatsApp, in person); redeeming it IS the acceptance, so there is no
+  -- pending-request inbox and nobody can be found without an issued code.
+  CREATE TABLE IF NOT EXISTS invites (
+    code       TEXT PRIMARY KEY,
+    owner_id   INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    used_at    INTEGER,
+    used_by    INTEGER
+  );
+  -- Per-user public board. Written by the client on sync; NEVER derived from
+  -- the users.state blob, so a bug here can't leak anything the user didn't
+  -- explicitly publish. Body is a JSON array of best lifts.
+  CREATE TABLE IF NOT EXISTS boards (
+    user_id    INTEGER PRIMARY KEY,
+    lifts      TEXT NOT NULL DEFAULT '[]',
+    streak     INTEGER NOT NULL DEFAULT 0,
+    workouts   INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL
+  );
+  -- Workouts the user chose to publish, one row per workout. Publishing is an
+  -- explicit, per-workout, reversible act: an unpublished workout never leaves
+  -- users.state. workout_id is the client-side id, so unpublishing (and
+  -- re-publishing after an edit) is an upsert/delete on the same key.
+  CREATE TABLE IF NOT EXISTS posts (
+    user_id    INTEGER NOT NULL,
+    workout_id TEXT NOT NULL,
+    date       TEXT NOT NULL,
+    body       TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, workout_id)
+  );
+  CREATE INDEX IF NOT EXISTS posts_by_user ON posts (user_id, date DESC);
 `);
 
 // Migrate older databases that used an "email" column.
@@ -69,7 +112,47 @@ const q = {
   insertShare: db.prepare("INSERT INTO shares (code, template, owner, created_at) VALUES (?, ?, ?, ?)"),
   getShare:    db.prepare("SELECT * FROM shares WHERE code = ?"),
   bumpShare:   db.prepare("UPDATE shares SET uses = uses + 1 WHERE code = ?"),
+
+  // friends (pair is always stored as a < b)
+  insertFriend: db.prepare("INSERT OR IGNORE INTO friends (a, b, created_at) VALUES (?, ?, ?)"),
+  areFriends:   db.prepare("SELECT 1 FROM friends WHERE a = ? AND b = ?"),
+  deleteFriend: db.prepare("DELETE FROM friends WHERE a = ? AND b = ?"),
+  // The board of every friend of :id, whichever side of the pair they sit on.
+  friendBoards: db.prepare(`
+    SELECT u.id, u.username, b.lifts, b.streak, b.workouts, b.updated_at, f.created_at AS since
+    FROM friends f
+    JOIN users u ON u.id = CASE WHEN f.a = ? THEN f.b ELSE f.a END
+    LEFT JOIN boards b ON b.user_id = u.id
+    WHERE f.a = ? OR f.b = ?
+    ORDER BY u.username`),
+  deleteFriendsOf: db.prepare("DELETE FROM friends WHERE a = ? OR b = ?"),
+
+  // invites
+  insertInvite: db.prepare("INSERT INTO invites (code, owner_id, created_at, expires_at) VALUES (?, ?, ?, ?)"),
+  getInvite:    db.prepare("SELECT * FROM invites WHERE code = ?"),
+  useInvite:    db.prepare("UPDATE invites SET used_at = ?, used_by = ? WHERE code = ? AND used_at IS NULL"),
+  deleteInvitesOf: db.prepare("DELETE FROM invites WHERE owner_id = ? OR used_by = ?"),
+
+  // board
+  upsertBoard: db.prepare(`
+    INSERT INTO boards (user_id, lifts, streak, workouts, updated_at) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET lifts = excluded.lifts, streak = excluded.streak,
+      workouts = excluded.workouts, updated_at = excluded.updated_at`),
+  deleteBoardOf: db.prepare("DELETE FROM boards WHERE user_id = ?"),
+
+  // posts (published workouts)
+  upsertPost: db.prepare(`
+    INSERT INTO posts (user_id, workout_id, date, body, created_at) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, workout_id) DO UPDATE SET date = excluded.date, body = excluded.body`),
+  deletePost:  db.prepare("DELETE FROM posts WHERE user_id = ? AND workout_id = ?"),
+  postsOf:     db.prepare("SELECT workout_id, date, body, created_at FROM posts WHERE user_id = ? ORDER BY date DESC LIMIT 60"),
+  myPostIds:   db.prepare("SELECT workout_id FROM posts WHERE user_id = ?"),
+  deletePostsOf: db.prepare("DELETE FROM posts WHERE user_id = ?"),
 };
+
+// Friend pairs are stored with the lower id first so each friendship is exactly
+// one row and lookups never have to try both orderings.
+function pair(x, y) { return x < y ? [x, y] : [y, x]; }
 
 /* ---------- password hashing (scrypt) ---------- */
 function hashPassword(password, salt = randomBytes(16).toString("hex")) {
@@ -267,6 +350,71 @@ function sanitizeShare(body) {
   return t ? { type: "routine", template: t } : null;
 }
 
+// Bound + strip whatever the client publishes to its board: it is read by other
+// users, so only these fields ever survive, and nothing free-form gets through.
+function sanitizeBoard(body) {
+  const lifts = (Array.isArray(body && body.lifts) ? body.lifts : []).map((l) => {
+    if (!l || typeof l.name !== "string") return null;
+    const weight = Number(l.weight);
+    if (!isFinite(weight) || weight <= 0) return null;
+    const o = {
+      name: l.name.slice(0, 80),
+      group: typeof l.group === "string" ? l.group.slice(0, 20) : "",
+      weight: round1(weight),
+    };
+    const reps = Number(l.reps);
+    if (isFinite(reps) && reps > 0) o.reps = Math.round(reps);
+    // Plain YYYY-MM-DD only; anything else is dropped rather than stored raw.
+    if (typeof l.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(l.date)) o.date = l.date;
+    return o;
+  }).filter(Boolean);
+  lifts.sort((x, y) => y.weight - x.weight);
+  const n = (v) => { const x = Number(v); return isFinite(x) && x > 0 ? Math.min(Math.round(x), 99999) : 0; };
+  return { lifts: lifts.slice(0, 50), streak: n(body && body.streak), workouts: n(body && body.workouts) };
+}
+
+// A published workout: every exercise with its sets (weight × reps, or time/km
+// for cardio) — but NEVER the notes. Session notes and per-exercise notes are
+// written for yourself, so they are dropped here on purpose and there is no
+// field for them to travel in, whatever the client sends.
+function sanitizePost(body) {
+  if (!body || typeof body !== "object") return null;
+  const date = String(body.date || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const id = String(body.id || "").slice(0, 40);
+  if (!id) return null;
+  const groups = Array.isArray(body.groups) ? body.groups.filter((g) => typeof g === "string").slice(0, 12).map((g) => g.slice(0, 20)) : [];
+  const entries = (Array.isArray(body.entries) ? body.entries : []).slice(0, 40).map((en) => {
+    if (!en || typeof en.name !== "string") return null;
+    const sets = (Array.isArray(en.sets) ? en.sets : []).slice(0, 30).map((s) => {
+      const o = {};
+      ["weight", "reps", "min", "km"].forEach((k) => {
+        if (s && s[k] !== undefined && s[k] !== "" && isFinite(Number(s[k]))) o[k] = Number(s[k]);
+      });
+      if (s && (s.side === "I" || s.side === "D")) o.side = s.side;
+      if (s && Array.isArray(s.drops) && s.drops.length) {
+        const drops = s.drops.slice(0, 8).map((d) => {
+          const dd = {};
+          ["weight", "reps"].forEach((k) => {
+            if (d && d[k] !== undefined && d[k] !== "" && isFinite(Number(d[k]))) dd[k] = Number(d[k]);
+          });
+          return dd;
+        }).filter((d) => Number(d.reps) > 0);
+        if (drops.length) o.drops = drops;
+      }
+      return o;
+    });
+    if (!sets.length) return null;
+    return { name: en.name.slice(0, 80), group: typeof en.group === "string" ? en.group.slice(0, 20) : "", sets };
+  }).filter(Boolean);
+  if (!entries.length) return null;
+  return { id, date, groups, entries };
+}
+
+// Invite codes reuse the share-code alphabet (no ambiguous chars) but are longer
+// and single-use, so they can't be guessed or replayed.
+const INVITE_TTL = 24 * 60 * 60 * 1000; // 24h
+
 /* ---------- API ---------- */
 async function handleApi(req, res, url) {
   const path = url.pathname;
@@ -360,6 +508,12 @@ async function handleApi(req, res, url) {
       return sendJSON(res, 403, { error: "Contraseña incorrecta" });
     }
     q.deleteSharesOf.run(user.username);
+    // Leave nothing pointing at a user that no longer exists: friendships (on
+    // either side of the pair), invites issued or redeemed, and the public board.
+    q.deleteFriendsOf.run(user.id, user.id);
+    q.deleteInvitesOf.run(user.id, user.id);
+    q.deleteBoardOf.run(user.id);
+    q.deletePostsOf.run(user.id);
     q.deleteUser.run(user.id);
     res.setHeader("Set-Cookie", "gj_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax");
     rlReset(ip);
@@ -407,6 +561,128 @@ async function handleApi(req, res, url) {
     // Legacy shares were stored as a bare template (no `type`).
     const share = parsed.type ? parsed : { type: "routine", template: parsed };
     return sendJSON(res, 200, { share, template: share.template, owner: row.owner || null });
+  }
+
+  // Publish my own board (best lifts + streak + workout count). Called on sync.
+  // The server never derives this from users.state — only what the client
+  // explicitly sends here is ever visible to friends.
+  if (path === "/api/board" && req.method === "PUT") {
+    const user = authUser(req);
+    if (!user) return sendJSON(res, 401, { error: "No autorizado" });
+    const b = sanitizeBoard(await readJSON(req));
+    q.upsertBoard.run(user.id, JSON.stringify(b.lifts), b.streak, b.workouts, Date.now());
+    return sendJSON(res, 200, { ok: true });
+  }
+
+  // Issue a single-use invite code to hand to a friend out of band.
+  if (path === "/api/invites" && req.method === "POST") {
+    const user = authUser(req);
+    if (!user) return sendJSON(res, 401, { error: "No autorizado" });
+    let code = shareCode() + shareCode(); // 16 chars
+    for (let i = 0; i < 5 && q.getInvite.get(code); i++) code = shareCode() + shareCode();
+    const now = Date.now();
+    q.insertInvite.run(code, user.id, now, now + INVITE_TTL);
+    return sendJSON(res, 201, { code, expiresAt: now + INVITE_TTL });
+  }
+
+  // Redeem an invite code → become friends. Redeeming IS the acceptance.
+  if (path === "/api/friends/redeem" && req.method === "POST") {
+    const ip = clientIp(req);
+    // Codes are unguessable, but throttle anyway so nobody can grind the space.
+    if (rlBlocked(ip)) return sendJSON(res, 429, { error: "Demasiados intentos. Espera unos minutos." });
+    const user = authUser(req);
+    if (!user) return sendJSON(res, 401, { error: "No autorizado" });
+    const code = String((await readJSON(req)).code || "").trim().toLowerCase();
+    const inv = q.getInvite.get(code);
+    if (!inv || inv.used_at || inv.expires_at < Date.now()) {
+      rlFail(ip);
+      return sendJSON(res, 404, { error: "Ese código no existe, ya se ha usado o ha caducado" });
+    }
+    if (inv.owner_id === user.id) return sendJSON(res, 400, { error: "Ese código es tuyo" });
+    const owner = q.byId.get(inv.owner_id);
+    if (!owner) return sendJSON(res, 404, { error: "Esa cuenta ya no existe" });
+    const [a, b] = pair(user.id, owner.id);
+    if (q.areFriends.get(a, b)) return sendJSON(res, 409, { error: "Ya sois amigos" });
+    // Burn the code first: the guarded UPDATE (used_at IS NULL) returns 0 rows
+    // if a concurrent request already claimed it, so it can't be redeemed twice.
+    if (q.useInvite.run(Date.now(), user.id, code).changes === 0) {
+      return sendJSON(res, 409, { error: "Ese código acaba de usarse" });
+    }
+    q.insertFriend.run(a, b, Date.now());
+    rlReset(ip);
+    return sendJSON(res, 201, { friend: { id: owner.id, username: owner.username } });
+  }
+
+  // The board: my friends and their published bests.
+  if (path === "/api/friends" && req.method === "GET") {
+    const user = authUser(req);
+    if (!user) return sendJSON(res, 401, { error: "No autorizado" });
+    const rows = q.friendBoards.all(user.id, user.id, user.id);
+    const friends = rows.map((r) => {
+      let lifts = [];
+      try { lifts = JSON.parse(r.lifts || "[]"); } catch { lifts = []; }
+      return {
+        id: r.id, username: r.username, since: r.since,
+        lifts, streak: r.streak || 0, workouts: r.workouts || 0,
+        updatedAt: r.updated_at || null,
+      };
+    });
+    return sendJSON(res, 200, { friends });
+  }
+
+  // Publish one workout (explicit, per workout). Re-publishing an edited workout
+  // upserts on the same key, so it can't pile up duplicates.
+  if (path === "/api/posts" && req.method === "POST") {
+    const user = authUser(req);
+    if (!user) return sendJSON(res, 401, { error: "No autorizado" });
+    const post = sanitizePost(await readJSON(req));
+    if (!post) return sendJSON(res, 400, { error: "Entreno no válido" });
+    q.upsertPost.run(user.id, post.id, post.date, JSON.stringify(post), Date.now());
+    return sendJSON(res, 201, { ok: true, id: post.id });
+  }
+
+  // Which of my workouts are currently published (so the UI can show the state).
+  if (path === "/api/posts/mine" && req.method === "GET") {
+    const user = authUser(req);
+    if (!user) return sendJSON(res, 401, { error: "No autorizado" });
+    return sendJSON(res, 200, { ids: q.myPostIds.all(user.id).map((r) => r.workout_id) });
+  }
+
+  // Unpublish. Publishing must be reversible or it isn't really a choice.
+  if (path.startsWith("/api/posts/") && req.method === "DELETE") {
+    const user = authUser(req);
+    if (!user) return sendJSON(res, 401, { error: "No autorizado" });
+    const id = decodeURIComponent(path.slice("/api/posts/".length));
+    q.deletePost.run(user.id, id);
+    return sendJSON(res, 200, { ok: true });
+  }
+
+  // A friend's published workouts. Gated on the friendship actually existing:
+  // without this check anyone could read anyone's posts by guessing an id.
+  if (path.startsWith("/api/friends/") && path.endsWith("/posts") && req.method === "GET") {
+    const user = authUser(req);
+    if (!user) return sendJSON(res, 401, { error: "No autorizado" });
+    const other = Number(path.slice("/api/friends/".length, -"/posts".length));
+    if (!Number.isInteger(other) || other <= 0) return sendJSON(res, 400, { error: "Amigo no válido" });
+    const [a, b] = pair(user.id, other);
+    if (!q.areFriends.get(a, b)) return sendJSON(res, 403, { error: "No sois amigos" });
+    const posts = q.postsOf.all(other).map((r) => {
+      let body = null;
+      try { body = JSON.parse(r.body); } catch { body = null; }
+      return body;
+    }).filter(Boolean);
+    return sendJSON(res, 200, { posts });
+  }
+
+  // Unfriend: one DELETE on the single pair row, so it always cuts both ways.
+  if (path.startsWith("/api/friends/") && req.method === "DELETE") {
+    const user = authUser(req);
+    if (!user) return sendJSON(res, 401, { error: "No autorizado" });
+    const other = Number(path.slice("/api/friends/".length));
+    if (!Number.isInteger(other) || other <= 0) return sendJSON(res, 400, { error: "Amigo no válido" });
+    const [a, b] = pair(user.id, other);
+    q.deleteFriend.run(a, b);
+    return sendJSON(res, 200, { ok: true });
   }
 
   // Food search proxy (Open Food Facts) — keeps it CORS-free and private.

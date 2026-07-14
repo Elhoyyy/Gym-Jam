@@ -74,11 +74,24 @@
       // Only mark synced if no newer change arrived during the upload.
       if (readPending() === token) { clearPending(); setSync("synced"); }
       else { setSync("saving"); }      // a newer change is already queued to push
+      pushBoard();                     // refresh what friends see (best-effort)
     } catch (err) {
       if (err.status === 401) return forceLogout();
       setSync("offline");              // keep the token → retried when back online
     }
   }
+  // Publish the board my friends see (best lifts + streak + workout count).
+  // Best-effort on purpose: the state is already safely stored by the time this
+  // runs, so a failure here must never flip the sync indicator to "offline" or
+  // block anything — the board just stays as it was until the next sync.
+  async function pushBoard() {
+    if (mode !== "backend") return;
+    if (typeof global.__buildBoard !== "function") return;
+    try {
+      await api("/api/board", { method: "PUT", body: global.__buildBoard(), auth: true });
+    } catch (_) {}
+  }
+
   // Retry unsynced changes the moment the network comes back.
   function flushWhenOnline() { if (mode === "backend" && hasPending()) pushNow(); }
   window.addEventListener("online", flushWhenOnline);
@@ -334,6 +347,10 @@
       onReady();
       // Ensure a brand-new account persists its seeded library server-side.
       if (isNew || !serverState.exercises) { markPending(); pushNow(); }
+      // pushNow() only runs when there are pending edits, so refresh the friends
+      // board here too: otherwise just opening the app (no edits) would leave
+      // stale bests on show after this device synced from another one.
+      else pushBoard();
     }
   }
 
@@ -421,7 +438,7 @@
   function paintSync() { setSync(syncState); }
 
   global.Auth = {
-    init, logout, api, changePassword, deleteAccount, forceSync, paintSync,
+    init, logout, api, changePassword, deleteAccount, forceSync, paintSync, pushBoard,
     get mode() { return mode; },
     get uid() { return userId; },
     get username() { return username; },
