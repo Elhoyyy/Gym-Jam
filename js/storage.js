@@ -67,11 +67,14 @@
     // ---- Bíceps ----
     ["Curl con barra", "biceps"], ["Curl con barra Z", "biceps"],
     ["Curl con mancuernas", "biceps"], ["Curl alterno con mancuernas", "biceps"],
-    ["Curl martillo", "biceps"], ["Curl predicador (Scott)", "biceps"],
+    ["Curl martillo", "biceps"], ["Curl martillo en polea", "biceps"],
+    ["Curl predicador (Scott)", "biceps"],
     ["Curl predicador en máquina", "biceps"], ["Curl en polea", "biceps"],
+    ["Curl bayesian", "biceps"], ["Curl tumbado en banco inclinado", "biceps"],
     ["Curl crucifijo en polea alta", "biceps"], ["Curl concentrado", "biceps"],
     ["Curl inclinado con mancuernas", "biceps"], ["Curl araña (spider)", "biceps"],
-    ["Curl 21s", "biceps"],
+    ["Curl 21s", "biceps"], ["Curl inverso (prono)", "biceps"],
+    ["Curl con cuerda en polea", "biceps"],
 
     // ---- Tríceps ----
     ["Press francés con barra", "triceps"], ["Press francés con mancuernas", "triceps"],
@@ -80,6 +83,8 @@
     ["Extensión con mancuerna sobre la cabeza", "triceps"], ["Fondos en banco", "triceps"],
     ["Fondos en paralelas (tríceps)", "triceps"], ["Patada de tríceps", "triceps"],
     ["Press cerrado", "triceps"], ["Extensión en máquina", "triceps"],
+    ["Extensión en polea tras nuca (cuerda)", "triceps"], ["Press francés en polea", "triceps"],
+    ["Fondos en máquina asistida", "triceps"],
 
     // ---- Pierna ----
     ["Sentadilla con barra", "pierna"], ["Sentadilla frontal", "pierna"],

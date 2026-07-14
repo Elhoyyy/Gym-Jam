@@ -603,7 +603,7 @@ html.auth-pending .theme-toggle { display: none !important; }
 /* ---------- Friends (tab inside Stats) ---------- */
 .fr-avatar {
   width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
-  background: var(--surface-3); color: var(--text-dim);
+  background: var(--accent); color: var(--accent-ink);
   font-family: "Space Grotesk"; font-size: 14px; font-weight: 700;
 }
 
@@ -613,15 +613,33 @@ html.auth-pending .theme-toggle { display: none !important; }
 .fr-chip {
   display: flex; align-items: center; gap: 10px; flex-shrink: 0;
   padding: 9px 14px 9px 9px; border-radius: 999px; cursor: pointer;
-  background: var(--surface); border: 1px solid var(--border);
+  background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   font: inherit; text-align: left; transition: border-color 0.14s, background 0.14s;
 }
-.fr-chip:hover { background: var(--surface-2); border-color: var(--border-strong); }
+.fr-chip:hover { border-color: var(--accent); }
 .fr-chip-info { display: block; min-width: 0; }
 .fr-chip-name { display: block; font-weight: 600; font-size: 13.5px; color: var(--ink); }
 .fr-chip-meta { display: block; font-size: 11px; color: var(--text-faint); font-variant-numeric: tabular-nums; margin-top: 1px; }
 
-.fr-sub { margin-bottom: 16px; }
+/* `.seg.seg-sm` zeroes the margin `.seg` normally carries, and it outranks a
+   single class — so the sub-switch needs the same specificity to space itself. */
+.seg.fr-sub { margin: 4px 0 18px; }
+/* Chips sit between the switch and the table: .cmp-summary only spaces below. */
+.fr-cmp-summary { margin-bottom: 16px; }
+
+/* Muscle-group filter. Each active chip takes its own group colour (set inline
+   from GROUPS), so the filter reads like the rest of the app's colour coding. */
+.gf-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.gf-chip {
+  padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: 600;
+  background: var(--surface); color: var(--text-dim);
+  border: 1px solid var(--border); transition: all 0.14s;
+}
+.gf-chip:hover { border-color: var(--border-strong); color: var(--ink); }
+.gf-chip.is-on { font-weight: 700; }
+/* "Todos" has no group colour of its own → fall back to the solid ink chip. */
+.gf-chip.is-on[data-gf=""] { background: var(--solid); border-color: var(--solid); color: var(--on-solid); }
 
 .fr-table { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
 .fr-row {
@@ -658,20 +676,47 @@ html.auth-pending .theme-toggle { display: none !important; }
 .fr-sheet-head h2 { margin: 0; }
 .fr-sheet-head p { margin: 2px 0 0; font-variant-numeric: tabular-nums; }
 .fr-sheet-actions { margin-top: 16px; justify-content: flex-end; }
+/* Same `.seg.seg-sm { margin: 0 }` trap as the sub-switch: space it explicitly. */
+#frSheetSeg { margin: 14px 0 16px; }
 #frSheetBody { max-height: 52vh; overflow-y: auto; }
 
-/* A friend's published workout */
-.fr-post { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px; background: var(--surface); }
+/* A friend's published workout — collapsed by default, same pattern as the
+   history card: a long list of open workouts is unreadable. */
+.fr-post {
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius); margin-bottom: 8px; background: var(--surface); overflow: hidden;
+}
 .fr-post:last-child { margin-bottom: 0; }
-.fr-post-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-.fr-post-date { font-weight: 700; font-size: 14px; color: var(--ink); font-family: "Space Grotesk"; }
-.fr-post-meta { font-size: 11.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.fr-post-top {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 12px 14px; cursor: pointer; text-align: left;
+  background: none; border: none; font: inherit; color: inherit;
+  transition: background 0.14s;
+}
+.fr-post-top:hover { background: var(--accent-soft); }
+.fr-post.is-open .fr-post-top { background: var(--accent-soft); }
+.fr-post-name { color: var(--ink); }
+.fr-post-chev { color: var(--accent); }
+.fr-post-info { flex: 1; min-width: 0; }
+.fr-post-name { display: block; font-family: "Space Grotesk"; font-weight: 700; font-size: 14px; color: var(--ink); }
+.fr-post-meta { display: block; font-size: 11.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; margin-top: 2px; }
+.fr-post-chev { flex-shrink: 0; color: var(--text-faint); transition: transform 0.18s; }
+.fr-post.is-open .fr-post-chev { transform: rotate(180deg); }
+.fr-post-body { max-height: 0; overflow: hidden; padding: 0 14px; transition: max-height 0.22s ease, padding 0.22s ease; }
+.fr-post.is-open .fr-post-body { max-height: 1600px; padding: 0 14px 12px; }
 .fr-post-ex { padding: 8px 0; border-top: 1px solid var(--border); }
-.fr-post-ex-name { font-size: 13.5px; font-weight: 600; color: var(--ink); margin-bottom: 5px; }
+.fr-post-ex-name { font-size: 13.5px; font-weight: 600; color: var(--ink); margin-bottom: 5px; display: flex; align-items: center; gap: 7px; }
+/* Small round dot here, not the tall bar .ex-dot draws in the history card. */
+.fr-post-ex-name .ex-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .fr-post-sets { display: flex; flex-wrap: wrap; gap: 5px; }
 
-/* Publish button on a history card */
-.js-publish.is-published { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 35%, var(--border)); }
+/* Publish button on a history card — accent when live, so "this one is out
+   there" reads at a glance and matches the accent used on the friends side. */
+.js-publish.is-published {
+  color: var(--accent); background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
 
 .fr-add { margin-top: 18px; }
 .fr-add-grid { display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: start; }
@@ -739,6 +784,13 @@ html.auth-pending .theme-toggle { display: none !important; }
 .history-date .hd-day { font-family: "Space Grotesk"; font-size: 24px; font-weight: 700; line-height: 1; color: var(--ink); }
 .history-date .hd-mon { font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; margin-top: 2px; }
 .history-info { min-width: 0; flex: 1; }
+/* Optional workout name. Sits above the group tags; absent, the card reads
+   exactly as it did before (date on the left, exercises underneath). */
+.history-name {
+  font-family: "Space Grotesk"; font-size: 14.5px; font-weight: 700; color: var(--ink);
+  margin-bottom: 5px; letter-spacing: -0.2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .history-groups { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 6px; }
 .g-tag { font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 4px; color: #fff; letter-spacing: 0.3px; }
 .history-summary { font-size: 13px; color: var(--text-dim); }

@@ -360,6 +360,9 @@ function sanitizeBoard(body) {
     const o = {
       name: l.name.slice(0, 80),
       group: typeof l.group === "string" ? l.group.slice(0, 20) : "",
+      // Stable group key (pecho, biceps…) alongside the display name, so the
+      // client can filter and colour by group without string-matching labels.
+      gkey: typeof l.gkey === "string" ? l.gkey.slice(0, 20) : "",
       weight: round1(weight),
     };
     const reps = Number(l.reps);
@@ -383,6 +386,9 @@ function sanitizePost(body) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
   const id = String(body.id || "").slice(0, 40);
   if (!id) return null;
+  // Optional title the publisher gave this workout. Bounded like everything else
+  // here; empty means the client falls back to showing the date.
+  const title = String(body.title || "").trim().slice(0, 60);
   const groups = Array.isArray(body.groups) ? body.groups.filter((g) => typeof g === "string").slice(0, 12).map((g) => g.slice(0, 20)) : [];
   const entries = (Array.isArray(body.entries) ? body.entries : []).slice(0, 40).map((en) => {
     if (!en || typeof en.name !== "string") return null;
@@ -405,10 +411,15 @@ function sanitizePost(body) {
       return o;
     });
     if (!sets.length) return null;
-    return { name: en.name.slice(0, 80), group: typeof en.group === "string" ? en.group.slice(0, 20) : "", sets };
+    return {
+      name: en.name.slice(0, 80),
+      group: typeof en.group === "string" ? en.group.slice(0, 20) : "",
+      gkey: typeof en.gkey === "string" ? en.gkey.slice(0, 20) : "",
+      sets,
+    };
   }).filter(Boolean);
   if (!entries.length) return null;
-  return { id, date, groups, entries };
+  return { id, date, title, groups, entries };
 }
 
 // Invite codes reuse the share-code alphabet (no ambiguous chars) but are longer

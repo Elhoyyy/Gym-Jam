@@ -48,7 +48,7 @@
   }
 
   function newDraft() {
-    return { date: todayISO(), groups: [], notes: "", entries: [] };
+    return { date: todayISO(), name: "", groups: [], notes: "", entries: [] };
   }
   // Per-user so an unsaved draft (with private notes) never leaks to the next
   // account that logs in on the same browser. Falls back to a shared key in
@@ -1091,12 +1091,42 @@
     if (!draft.groups.length) { toast("Selecciona un tipo de entreno", "error"); return; }
     if (!hasData) { toast("Añade al menos una serie con datos", "error"); return; }
 
-    DB.saveWorkout(draft);
-    toast(draft.id ? "Entreno actualizado" : "¡Entreno guardado! 💪", "success");
-    checkAchievements();          // fire unlock toasts for any newly-earned logros
-    draft = newDraft();
-    saveDraft();
-    setView("history");
+    // Ask for an optional name. Left empty, the workout keeps showing its date
+    // exactly as before — the name is a nicety, never a required step.
+    const suggested = draft.name || (draft.groups || []).map((k) => (G[k] || {}).name).filter(Boolean).join(" · ");
+    openModal(`
+      <div class="modal-head">
+        <div>
+          <h2>${draft.id ? "Actualizar entreno" : "Guardar entreno"}</h2>
+          <p>Ponle un nombre si quieres. Si lo dejas vacío se mostrará la fecha.</p>
+        </div>
+        <button class="icon-btn" id="wnClose"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="modal-field">
+        <label>Nombre del entreno · opcional</label>
+        <input class="input" id="wnName" maxlength="60" placeholder="Ej: Push pesado" value="${escapeHtml(suggested)}" autocomplete="off">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="wnSkip">Guardar sin nombre</button>
+        <button class="btn btn-primary" id="wnOk">Guardar</button>
+      </div>
+    `);
+    const input = $("#wnName");
+    input.focus(); input.select();
+    const finish = (name) => {
+      draft.name = (name || "").trim();
+      closeModal();
+      DB.saveWorkout(draft);
+      toast(draft.id ? "Entreno actualizado" : "¡Entreno guardado! 💪", "success");
+      checkAchievements();        // fire unlock toasts for any newly-earned logros
+      draft = newDraft();
+      saveDraft();
+      setView("history");
+    };
+    $("#wnClose").addEventListener("click", closeModal);
+    $("#wnSkip").addEventListener("click", () => finish(""));
+    $("#wnOk").addEventListener("click", () => finish(input.value));
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") finish(input.value); });
   }
 
   /* --- Reuse a previous workout as template ------------------ */
@@ -1713,32 +1743,68 @@
   async function togglePublish(id) {
     const w = DB.workoutById(id);
     if (!w || !publishedIds) return;
-    const on = publishedIds.has(id);
-    try {
-      if (on) {
+
+    // Already published → unpublish straight away, no dialog to get in the way.
+    if (publishedIds.has(id)) {
+      try {
         await Auth.api("/api/posts/" + encodeURIComponent(id), { method: "DELETE", auth: true });
         publishedIds.delete(id);
+        paintPublishButtons();
         toast("Entreno despublicado", "success");
-      } else {
-        await Auth.api("/api/posts", { method: "POST", body: postFromWorkout(w), auth: true });
+      } catch (err) { toast(err.message || "No se pudo despublicar", "error"); }
+      return;
+    }
+
+    // Publishing: ask for a name, pre-filled with the workout's own name if it
+    // has one, else the muscle groups.
+    const suggested = w.name || (w.groups || []).map((k) => (G[k] || {}).name).filter(Boolean).join(" · ") || "Entreno";
+    openModal(`
+      <div class="modal-head">
+        <div>
+          <h2>Publicar entreno</h2>
+          <p>Tus amigos verán los ejercicios y las series. <b>Tus notas no se publican.</b></p>
+        </div>
+        <button class="icon-btn" id="pubClose"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="modal-field">
+        <label>Nombre del entreno</label>
+        <input class="input" id="pubName" maxlength="60" placeholder="Ej: Push pesado" value="${escapeHtml(suggested)}" autocomplete="off">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="pubCancel">Cancelar</button>
+        <button class="btn btn-primary" id="pubOk">Publicar</button>
+      </div>
+    `);
+    const input = $("#pubName");
+    input.focus(); input.select();
+    $("#pubClose").addEventListener("click", closeModal);
+    $("#pubCancel").addEventListener("click", closeModal);
+
+    const submit = async () => {
+      try {
+        await Auth.api("/api/posts", { method: "POST", body: postFromWorkout(w, input.value.trim()), auth: true });
         publishedIds.add(id);
+        closeModal();
+        paintPublishButtons();
         toast("Entreno publicado para tus amigos", "success");
-      }
-      paintPublishButtons();
-    } catch (err) { toast(err.message || "No se pudo publicar", "error"); }
+      } catch (err) { toast(err.message || "No se pudo publicar", "error"); }
+    };
+    $("#pubOk").addEventListener("click", submit);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
   }
 
   // Shape a workout for publishing. Notes — both the session note and the
   // per-exercise ones — are deliberately left out: they're written for yourself.
-  function postFromWorkout(w) {
+  function postFromWorkout(w, title) {
     return {
       id: String(w.id),
       date: w.date,
+      title: title || "",
       groups: w.groups || [],
       entries: (w.entries || []).map((en) => {
         const ex = DB.exerciseById(en.exerciseId);
         if (!ex) return null;
-        return { name: ex.name, group: (G[ex.group] || {}).name || ex.group, sets: cloneSets(en.sets) };
+        return { name: ex.name, gkey: ex.group, group: (G[ex.group] || {}).name || ex.group, sets: cloneSets(en.sets) };
       }).filter(Boolean),
     };
   }
@@ -1801,6 +1867,7 @@
           <div class="hd-mon">${mon}</div>
         </div>
         <div class="history-info">
+          ${w.name ? `<div class="history-name">${escapeHtml(w.name)}</div>` : ""}
           <div class="history-groups">${groupTags}</div>
           <div class="history-summary">${escapeHtml(exNames.slice(0, 3).join(" · "))}${exNames.length > 3 ? " +" + (exNames.length - 3) : ""}</div>
         </div>
@@ -2310,7 +2377,7 @@
         const wgt = Number(s.weight) || 0, reps = Number(s.reps) || 0;
         if (!reps) return;
         const orm = DB.estimate1RM(wgt, reps);
-        if (!map[en.exerciseId]) map[en.exerciseId] = { id: en.exerciseId, name: ex.name, group: (G[ex.group] || {}).name || ex.group, maxWeight: 0, bestReps: 0, oneRM: 0, date: null };
+        if (!map[en.exerciseId]) map[en.exerciseId] = { id: en.exerciseId, name: ex.name, gkey: ex.group, group: (G[ex.group] || {}).name || ex.group, maxWeight: 0, bestReps: 0, oneRM: 0, date: null };
         const rec = map[en.exerciseId];
         if (wgt > rec.maxWeight) { rec.maxWeight = wgt; rec.bestReps = reps; rec.date = w.date; }
         if (orm > rec.oneRM) rec.oneRM = orm;
@@ -2329,6 +2396,39 @@
   let friendsData = null;    // last /api/friends payload
   let boardExpanded = false;
   let friendsSub = "tablon"; // "tablon" | "comparativa"
+  let friendsGroup = "";     // muscle-group filter ("" = all)
+
+  // Exercise name + its muscle group underneath, the group tinted with its own
+  // colour. `gkey` is missing on boards published before it existed, so fall
+  // back to the plain faint label rather than showing nothing.
+  function frExHtml(r) {
+    const color = (G[r.gkey] || {}).color;
+    const label = r.group || (G[r.gkey] || {}).name || "";
+    return `<span class="fr-ex">${escapeHtml(r.name)}${
+      label ? `<em${color ? ` style="color:${color}"` : ""}>${escapeHtml(label)}</em>` : ""
+    }</span>`;
+  }
+
+  // Chips for every group actually present in `rows`, so the filter never offers
+  // an option that would show nothing. Coloured with each group's own colour.
+  function groupFilterHtml(rows) {
+    const keys = [];
+    rows.forEach((r) => { if (r.gkey && !keys.includes(r.gkey)) keys.push(r.gkey); });
+    if (keys.length < 2) return "";   // nothing to filter between
+    // A stale filter (group no longer present) would silently empty the view.
+    if (friendsGroup && !keys.includes(friendsGroup)) friendsGroup = "";
+    keys.sort((a, b) => ((G[a] || {}).name || a).localeCompare((G[b] || {}).name || b));
+    const chip = (key, label) => {
+      const on = friendsGroup === key;
+      const c = (G[key] || {}).color;
+      const style = on && c ? ` style="background:${c};border-color:${c};color:#fff"` : "";
+      return `<button class="gf-chip${on ? " is-on" : ""}" data-gf="${key}" type="button"${style}>${escapeHtml(label)}</button>`;
+    };
+    return `<div class="gf-row">
+      ${chip("", "Todos")}
+      ${keys.map((k) => chip(k, (G[k] || {}).name || k)).join("")}
+    </div>`;
+  }
 
   async function fillFriends() {
     const body = $("#statsBody");
@@ -2384,21 +2484,27 @@
   // The board: every friend's lifts in one ranking, heaviest first. Top 10 by
   // default — the point is the podium, not an exhaustive dump.
   function boardHtml(friends) {
-    const rows = [];
-    friends.forEach((f) => (f.lifts || []).forEach((l) => rows.push({ ...l, who: f.username })));
-    rows.sort((a, b) => b.weight - a.weight);
-    if (!rows.length) {
+    const all = [];
+    friends.forEach((f) => (f.lifts || []).forEach((l) => all.push({ ...l, who: f.username })));
+    all.sort((a, b) => b.weight - a.weight);
+    if (!all.length) {
       return `<div class="empty-hint"><span class="emoji">🏋️</span>Tus amigos aún no han publicado ninguna marca.</div>`;
+    }
+    const filter = groupFilterHtml(all);
+    const rows = friendsGroup ? all.filter((r) => r.gkey === friendsGroup) : all;
+    if (!rows.length) {
+      return `${filter}<div class="empty-hint">Ninguna marca de ese grupo.</div>`;
     }
     const shown = boardExpanded ? rows : rows.slice(0, BOARD_TOP);
     const more = rows.length - shown.length;
     return `
+      ${filter}
       <div class="fr-table">
         <div class="fr-row fr-head"><span>#</span><span>Ejercicio</span><span>Quién</span><span>Marca</span></div>
         ${shown.map((r, i) => `
           <div class="fr-row">
             <span class="fr-rank${i < 3 ? " is-top" : ""}">${i + 1}</span>
-            <span class="fr-ex">${escapeHtml(r.name)}${r.group ? `<em>${escapeHtml(r.group)}</em>` : ""}</span>
+            ${frExHtml(r)}
             <span class="fr-who">${escapeHtml(r.who)}</span>
             <span class="fr-mark"><b>${fmtNum(r.weight)} kg</b>${r.reps ? `<span>× ${r.reps}</span>` : ""}</span>
           </div>`).join("")}
@@ -2424,20 +2530,26 @@
       if (!cur || l.weight > cur.weight) best.set(k, { weight: l.weight, reps: l.reps, who: f.username });
     }));
 
-    const rows = mine.map((r) => {
+    const all = mine.map((r) => {
       const rival = best.get((r.name || "").toLowerCase());
-      return { name: r.name, group: r.group, mine: r.maxWeight, reps: r.bestReps, rival: rival || null };
+      return { name: r.name, group: r.group, gkey: r.gkey, mine: r.maxWeight, reps: r.bestReps, rival: rival || null };
     }).filter((r) => r.rival);   // only exercises somebody else also does
 
-    if (!rows.length) {
+    if (!all.length) {
       return `<div class="empty-hint"><span class="emoji">🤷</span>Ninguno de tus amigos ha publicado marcas en los ejercicios que tú haces.</div>`;
+    }
+    const filter = groupFilterHtml(all);
+    const rows = friendsGroup ? all.filter((r) => r.gkey === friendsGroup) : all;
+    if (!rows.length) {
+      return `${filter}<div class="empty-hint">Ningún ejercicio de ese grupo que compartáis.</div>`;
     }
     // Losing ones first — that's the useful half of the comparison.
     rows.sort((a, b) => (a.mine - a.rival.weight) - (b.mine - b.rival.weight));
     const beaten = rows.filter((r) => r.rival.weight > r.mine).length;
 
     return `
-      <div class="cmp-summary">
+      ${filter}
+      <div class="cmp-summary fr-cmp-summary">
         ${beaten ? `<span class="cmp-chip down">↓ Te superan en ${beaten}</span>` : ""}
         ${rows.length - beaten ? `<span class="cmp-chip up">↑ Mandas en ${rows.length - beaten}</span>` : ""}
       </div>
@@ -2448,7 +2560,7 @@
           const diff = Math.abs(r.rival.weight - r.mine);
           return `
             <div class="fr-row fr-vs-row">
-              <span class="fr-ex">${escapeHtml(r.name)}${r.group ? `<em>${escapeHtml(r.group)}</em>` : ""}</span>
+              ${frExHtml(r)}
               <span class="fr-mark"><b>${fmtNum(r.mine)} kg</b>${r.reps ? `<span>× ${r.reps}</span>` : ""}</span>
               <span class="fr-mark ${lose ? "is-lose" : "is-win"}">
                 <b>${fmtNum(r.rival.weight)} kg</b>
@@ -2513,7 +2625,7 @@
         ? `<div class="fr-table">
             ${lifts.map((l) => `
               <div class="fr-row fr-row-2">
-                <span class="fr-ex">${escapeHtml(l.name)}${l.group ? `<em>${escapeHtml(l.group)}</em>` : ""}</span>
+                ${frExHtml(l)}
                 <span class="fr-mark"><b>${fmtNum(l.weight)} kg</b>${l.reps ? `<span>× ${l.reps}</span>` : ""}</span>
               </div>`).join("")}
           </div>`
@@ -2532,17 +2644,25 @@
     body.innerHTML = posts.length
       ? posts.map(friendPostHtml).join("")
       : `<div class="empty-hint"><span class="emoji">🔒</span>${escapeHtml(name)} no ha publicado ningún entreno.</div>`;
+    $$("#frSheetBody .fr-post-top").forEach((top) => {
+      top.addEventListener("click", () => top.closest(".fr-post").classList.toggle("is-open"));
+    });
   }
 
+  // Collapsed by default: with a dozen published workouts an always-open list is
+  // an unreadable wall. Header shows the name + a one-line summary; tap to open.
   function friendPostHtml(p) {
     const d = new Date(p.date + "T00:00:00");
-    const when = d.toLocaleDateString("es-ES", { day: "numeric", month: "long" });
+    const when = d.toLocaleDateString("es-ES", { day: "numeric", month: "short" }).replace(".", "");
     const sets = (p.entries || []).reduce((a, en) => a + (en.sets || []).length, 0);
     const vol = (p.entries || []).reduce((a, en) => a +
       (en.sets || []).reduce((b, s) => b + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0), 0);
+    const title = (p.title || "").trim();
     const exs = (p.entries || []).map((en) => `
       <div class="fr-post-ex">
-        <div class="fr-post-ex-name">${escapeHtml(en.name)}</div>
+        <div class="fr-post-ex-name">${
+          (G[en.gkey] || {}).color ? `<span class="ex-dot" style="background:${(G[en.gkey]).color}"></span>` : ""
+        }${escapeHtml(en.name)}</div>
         <div class="fr-post-sets">${(en.sets || []).map((s) => {
           if (s.km || s.min) {
             return `<span class="set-pill">${s.min ? `<b>${fmtNum(s.min)}</b> min` : ""}${s.min && s.km ? " · " : ""}${s.km ? `<b>${fmtNum(s.km)}</b> km` : ""}</span>`;
@@ -2553,11 +2673,14 @@
       </div>`).join("");
     return `
       <div class="fr-post">
-        <div class="fr-post-top">
-          <span class="fr-post-date">${when}</span>
-          <span class="fr-post-meta">${(p.entries || []).length} ejercicios · ${sets} series${vol > 0 ? ` · ${fmtNum(vol)} kg` : ""}</span>
-        </div>
-        ${exs}
+        <button class="fr-post-top" type="button">
+          <span class="fr-post-info">
+            <span class="fr-post-name">${escapeHtml(title || when)}</span>
+            <span class="fr-post-meta">${title ? when + " · " : ""}${(p.entries || []).length} ejercicios · ${sets} series${vol > 0 ? ` · ${fmtNum(vol)} kg` : ""}</span>
+          </span>
+          <svg class="fr-post-chev" viewBox="0 0 24 24" width="18" height="18"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="fr-post-body">${exs}</div>
       </div>`;
   }
 
@@ -2571,6 +2694,14 @@
 
     const more = $("#frMore");
     if (more) more.addEventListener("click", () => { boardExpanded = !boardExpanded; paintFriends(); });
+
+    $$("[data-gf]").forEach((b) => b.addEventListener("click", () => {
+      const key = b.dataset.gf;
+      if (friendsGroup === key) return;
+      friendsGroup = key;
+      boardExpanded = false;    // a new filter starts from the top 10 again
+      paintFriends();
+    }));
 
     $$(".js-friend").forEach((b) => b.addEventListener("click", () => openFriend(b.dataset.id, b.dataset.name)));
 
@@ -2641,7 +2772,7 @@
     const asc = DB.get().workouts.slice().sort((a, b) => (a.date < b.date ? -1 : 1));
     const lifts = allRecords(asc)
       .sort((a, b) => b.maxWeight - a.maxWeight)
-      .map((r) => ({ name: r.name, group: r.group, weight: r.maxWeight, reps: r.bestReps, date: r.date }));
+      .map((r) => ({ name: r.name, group: r.group, gkey: r.gkey, weight: r.maxWeight, reps: r.bestReps, date: r.date }));
     return { lifts, streak: computeStreak(), workouts: DB.get().workouts.length };
   }
   global.__buildBoard = buildBoard;
