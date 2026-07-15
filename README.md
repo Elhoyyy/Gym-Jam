@@ -101,6 +101,7 @@ Gym&Jam/
 
 - Imágenes de ejercicios: [free-exercise-db](https://github.com/yuhonas/free-exercise-db) (dominio público, *The Unlicense*). El mapa nombre→imagen está en `js/exercise-media.js` y es editable.
 - Iconos de cardio: [Tabler Icons](https://tabler.io/icons) (MIT), compuestos en `assets/cardio/` con `scripts/gen-cardio.js`.
+- Avatares de animales: [Game Icons](https://game-icons.net) ([CC BY 3.0](https://creativecommons.org/licenses/by/3.0/)), compuestos en `assets/avatars/` con `scripts/gen-avatars.js`.
 
 ## 📄 Licencia
 

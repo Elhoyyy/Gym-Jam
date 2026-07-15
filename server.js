@@ -38,6 +38,7 @@ db.exec(`
     salt       TEXT NOT NULL,
     hash       TEXT NOT NULL,
     state      TEXT NOT NULL DEFAULT '{}',
+    avatar     TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   );
@@ -99,6 +100,10 @@ db.exec(`
   if (cols.includes("email") && !cols.includes("username")) {
     db.exec("ALTER TABLE users RENAME COLUMN email TO username");
   }
+  // Databases created before avatars existed lack the column.
+  if (!cols.includes("avatar")) {
+    db.exec("ALTER TABLE users ADD COLUMN avatar TEXT NOT NULL DEFAULT ''");
+  }
 }
 
 const q = {
@@ -107,6 +112,7 @@ const q = {
   insert:  db.prepare("INSERT INTO users (username, salt, hash, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"),
   saveState: db.prepare("UPDATE users SET state = ?, updated_at = ? WHERE id = ?"),
   setPassword: db.prepare("UPDATE users SET salt = ?, hash = ?, updated_at = ? WHERE id = ?"),
+  setAvatar:   db.prepare("UPDATE users SET avatar = ?, updated_at = ? WHERE id = ?"),
   deleteUser:  db.prepare("DELETE FROM users WHERE id = ?"),
   deleteSharesOf: db.prepare("DELETE FROM shares WHERE owner = ?"),
   insertShare: db.prepare("INSERT INTO shares (code, template, owner, created_at) VALUES (?, ?, ?, ?)"),
@@ -119,7 +125,7 @@ const q = {
   deleteFriend: db.prepare("DELETE FROM friends WHERE a = ? AND b = ?"),
   // The board of every friend of :id, whichever side of the pair they sit on.
   friendBoards: db.prepare(`
-    SELECT u.id, u.username, b.lifts, b.streak, b.workouts, b.updated_at, f.created_at AS since
+    SELECT u.id, u.username, u.avatar, b.lifts, b.streak, b.workouts, b.updated_at, f.created_at AS since
     FROM friends f
     JOIN users u ON u.id = CASE WHEN f.a = ? THEN f.b ELSE f.a END
     LEFT JOIN boards b ON b.user_id = u.id
@@ -422,6 +428,15 @@ function sanitizePost(body) {
   return { id, date, title, groups, entries };
 }
 
+// Avatars are the bundled animal tiles in assets/avatars/. The value other
+// users will see is validated against the actual files on disk, so it can only
+// ever be the name of an SVG we ship ("" = no avatar, show the initial).
+const AVATAR_RE = /^[a-z0-9-]{1,24}$/;
+function validAvatar(v) {
+  if (v === "") return true;
+  return AVATAR_RE.test(v) && existsSync(join(__dirname, "assets", "avatars", v + ".svg"));
+}
+
 // Invite codes reuse the share-code alphabet (no ambiguous chars) but are longer
 // and single-use, so they can't be guessed or replayed.
 const INVITE_TTL = 24 * 60 * 60 * 1000; // 24h
@@ -455,7 +470,7 @@ async function handleApi(req, res, url) {
     rlReset(clientIp(req));
     const token = issueToken(user);
     setSessionCookie(req, res, token);
-    return sendJSON(res, 201, { token, username: user.username, uid: user.id, createdAt: user.created_at });
+    return sendJSON(res, 201, { token, username: user.username, uid: user.id, createdAt: user.created_at, avatar: user.avatar || "" });
   }
 
   if (path === "/api/login" && req.method === "POST") {
@@ -471,7 +486,7 @@ async function handleApi(req, res, url) {
     rlReset(ip);
     const token = issueToken(user);
     setSessionCookie(req, res, token);
-    return sendJSON(res, 200, { token, username: user.username, uid: user.id, createdAt: user.created_at });
+    return sendJSON(res, 200, { token, username: user.username, uid: user.id, createdAt: user.created_at, avatar: user.avatar || "" });
   }
 
   // Who am I? (Bearer or session cookie). Lets the client restore the session
@@ -479,7 +494,18 @@ async function handleApi(req, res, url) {
   if (path === "/api/me" && req.method === "GET") {
     const user = authUser(req);
     if (!user) return sendJSON(res, 401, { error: "No autorizado" });
-    return sendJSON(res, 200, { username: user.username, uid: user.id, createdAt: user.created_at });
+    return sendJSON(res, 200, { username: user.username, uid: user.id, createdAt: user.created_at, avatar: user.avatar || "" });
+  }
+
+  // Set my avatar (one of the bundled animal tiles; "" clears it back to the
+  // letter initial). Friends see it via /api/friends.
+  if (path === "/api/avatar" && req.method === "PUT") {
+    const user = authUser(req);
+    if (!user) return sendJSON(res, 401, { error: "No autorizado" });
+    const avatar = String((await readJSON(req)).avatar || "");
+    if (!validAvatar(avatar)) return sendJSON(res, 400, { error: "Avatar no válido" });
+    q.setAvatar.run(avatar, Date.now(), user.id);
+    return sendJSON(res, 200, { ok: true, avatar });
   }
 
   if (path === "/api/logout" && req.method === "POST") {
@@ -633,7 +659,7 @@ async function handleApi(req, res, url) {
       let lifts = [];
       try { lifts = JSON.parse(r.lifts || "[]"); } catch { lifts = []; }
       return {
-        id: r.id, username: r.username, since: r.since,
+        id: r.id, username: r.username, avatar: r.avatar || "", since: r.since,
         lifts, streak: r.streak || 0, workouts: r.workouts || 0,
         updatedAt: r.updated_at || null,
       };

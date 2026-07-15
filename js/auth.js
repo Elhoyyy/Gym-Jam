@@ -17,6 +17,7 @@
   let username = null;
   let userId = null;            // current account id (namespaces per-user local data)
   let createdAt = null;         // account creation timestamp (ms), for the profile
+  let avatar = "";              // animal-tile id from assets/avatars/ ("" = initial)
   let onReady = function () {};
   let syncTimer = null;
   let syncState = "idle";       // idle | saving | synced | offline
@@ -145,19 +146,45 @@
     document.querySelectorAll(".account-avatar").forEach((el) => { el.dataset.sync = s; });
   }
 
+  /* ---------- avatar ---------- */
+  // The avatar lives on the account server-side; this cache only exists so an
+  // offline start (or pure local mode) still shows the right tile.
+  const AVATAR_RE = /^[a-z0-9-]{1,24}$/;
+  function avatarKey() { return "gymandjam.avatar.u" + (userId != null ? userId : "_"); }
+  function readAvatarCache() {
+    try { return localStorage.getItem(avatarKey()) || ""; } catch (_) { return ""; }
+  }
+  function cacheAvatar(v) { try { localStorage.setItem(avatarKey(), v); } catch (_) {} }
+
+  // Inner HTML for any avatar chip: the animal tile if one is set, otherwise
+  // the username's initial. The id is regex-gated before it touches a URL.
+  function avatarInner(av, name) {
+    if (av && AVATAR_RE.test(av)) return `<img src="assets/avatars/${av}.svg" alt="" draggable="false">`;
+    return (String(name || "?").charAt(0) || "?").toUpperCase();
+  }
+
+  // Change my avatar. Server first (when there is one), so a rejected value
+  // never sticks locally; then repaint every chip currently in the DOM.
+  async function setAvatar(av) {
+    av = String(av || "");
+    if (mode === "backend") await api("/api/avatar", { method: "PUT", body: { avatar: av }, auth: true });
+    avatar = av;
+    cacheAvatar(av);
+    if (mode === "backend") mountAccount();   // sidebar + mobile top bar
+  }
+
   /* ---------- account box (sidebar) ---------- */
   const LOGOUT_SVG = '<svg viewBox="0 0 24 24"><path d="M15 12H3m0 0l4-4m-4 4l4 4M14 4h5a2 2 0 012 2v12a2 2 0 01-2 2h-5" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const REFRESH_SVG = '<svg viewBox="0 0 24 24" fill="none"><path d="M21 12a9 9 0 0 1-15 6.7L3 16M3 12a9 9 0 0 1 15-6.7L21 8M21 4v4h-4M3 20v-4h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const SYNC_LINE = `<span class="sync-line"><span class="sync-status js-sync"><span class="sync-dot"></span>Sincronizado</span><button class="sync-refresh js-sync-refresh" type="button" title="Sincronizar ahora" aria-label="Sincronizar ahora">${REFRESH_SVG}</button></span>`;
 
   function mountAccount() {
-    const initial = (username || "?").charAt(0).toUpperCase();
     const box = document.getElementById("accountBox");
     if (box) {
       box.innerHTML = `
         <div class="account">
           <div class="account-info">
-            <span class="account-avatar">${initial}</span>
+            <span class="account-avatar">${avatarInner(avatar, username)}</span>
             <div class="account-meta">
               <span class="account-email" title="${username || ""}">${username || ""}</span>
               ${SYNC_LINE}
@@ -171,18 +198,18 @@
       const info = box.querySelector(".account-info");
       if (info) { info.classList.add("clickable"); info.addEventListener("click", () => { if (global.__openProfile) global.__openProfile(); }); }
     }
-    mountMobileAccount(initial);
+    mountMobileAccount();
     setSync(syncState === "idle" ? "synced" : syncState);
   }
 
   // Mobile: the top-bar avatar opens the full profile sheet (which holds the
   // sync status, account actions and logout).
-  function mountMobileAccount(initial) {
+  function mountMobileAccount() {
     const btn = document.getElementById("accountBtn");
     if (!btn) return;
     btn.hidden = false;
     const av = document.getElementById("accountBtnAvatar");
-    if (av) av.textContent = initial;
+    if (av) av.innerHTML = avatarInner(avatar, username);
     btn.onclick = (e) => { e.stopPropagation(); if (global.__openProfile) global.__openProfile(); };
   }
 
@@ -293,7 +320,7 @@
         token = data.token;
         username = data.username;
         try { localStorage.setItem(TOKEN_KEY, token); } catch (_) {}
-        await enterApp(tab === "register", { uid: data.uid, username: data.username, createdAt: data.createdAt });
+        await enterApp(tab === "register", { uid: data.uid, username: data.username, createdAt: data.createdAt, avatar: data.avatar });
         el.remove();
       } catch (err) {
         showError(err.message || "No se pudo completar. Inténtalo de nuevo.");
@@ -314,6 +341,9 @@
     if (uid != null) { userId = uid; DB.setCacheKey("gymandjam.v1.u" + uid); }
     username = me.username || username || (decodeToken(token) || {}).username;
     if (me.createdAt != null) createdAt = me.createdAt;
+    // Server value wins; fall back to the cache so the tile survives offline.
+    avatar = me.avatar != null ? String(me.avatar) : readAvatarCache();
+    cacheAvatar(avatar);
 
     let serverState = {};
     try {
@@ -359,6 +389,7 @@
     const payload = decodeToken(token) || {};
     if (payload.uid != null) { userId = payload.uid; DB.setCacheKey("gymandjam.v1.u" + payload.uid); }
     username = payload.username || payload.email;
+    avatar = readAvatarCache();
     DB.load();
     registerSync();
     mountAccount();
@@ -393,6 +424,7 @@
 
     if (!health || !health.auth) {
       mode = "local";
+      avatar = readAvatarCache();   // local mode keeps its avatar locally
       onReady();               // pure local mode (file:// or no server)
       return;
     }
@@ -439,9 +471,11 @@
 
   global.Auth = {
     init, logout, api, changePassword, deleteAccount, forceSync, paintSync, pushBoard,
+    setAvatar, avatarInner,
     get mode() { return mode; },
     get uid() { return userId; },
     get username() { return username; },
     get createdAt() { return createdAt; },
+    get avatar() { return avatar; },
   };
 })(window);

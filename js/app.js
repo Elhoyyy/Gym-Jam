@@ -16,6 +16,7 @@
   let foodWeekStart = null; // Monday of the week shown in the weekly view
   let statsExercise = null; // selected exercise id for strength progression chart
   let statsTab = "fuerza";  // "fuerza" | "cardio"
+  let statsTabTouched = false; // true once the user picks a stats tab by hand
   let heatWeeks = 26;       // consistency heatmap window (26 = 6 months, 53 = 1 year)
   let bwRange = 90;         // body-weight chart window in days (0 = all)
   let cardioExercise = null; // selected exercise id for cardio pace chart
@@ -1938,8 +1939,13 @@
     const hasStrength = workouts.some((w) => (w.entries || []).some((en) => {
       const ex = DB.exerciseById(en.exerciseId); return ex && ex.group !== "cardio";
     }));
-    if (statsTab === "cardio" && !hasCardio && hasStrength) statsTab = "fuerza";
-    if (statsTab === "fuerza" && !hasStrength && hasCardio) statsTab = "cardio";
+    // Land on the tab that actually has data — but only as a default. Once the
+    // user taps a tab, honor it: an empty tab shows its own hint instead of
+    // silently bouncing back (which read as "the button does nothing").
+    if (!statsTabTouched) {
+      if (statsTab === "cardio" && !hasCardio && hasStrength) statsTab = "fuerza";
+      if (statsTab === "fuerza" && !hasStrength && hasCardio) statsTab = "cardio";
+    }
     if (statsTab === "amigos" && !social) statsTab = "fuerza";
 
     main.innerHTML = `
@@ -1962,12 +1968,19 @@
     $$("#statsSeg .seg-btn").forEach((b) => b.addEventListener("click", () => {
       if (statsTab === b.dataset.tab) return;
       statsTab = b.dataset.tab;
+      statsTabTouched = true;
       renderStats();
     }));
 
     if (statsTab === "amigos") fillFriends();
     else if (!workouts.length) {
       $("#statsBody").innerHTML = `<div class="empty-hint"><span class="emoji">📊</span>Aún no hay datos.<br>Registra tus entrenos y aquí verás tu <b>progreso, records y volumen</b>.</div>`;
+    }
+    else if (statsTab === "cardio" && !hasCardio) {
+      $("#statsBody").innerHTML = `<div class="empty-hint"><span class="emoji">🏃</span>Aún no tienes ningún entreno de <b>cardio</b> registrado.<br>Añade un ejercicio de Cardio con tiempo o distancia y aquí verás tu progreso.</div>`;
+    }
+    else if (statsTab === "fuerza" && !hasStrength) {
+      $("#statsBody").innerHTML = `<div class="empty-hint"><span class="emoji">🏋️</span>Aún no tienes ningún entreno de <b>fuerza</b> registrado.<br>Registra series con peso y repeticiones y aquí verás tus records, volumen y progresión.</div>`;
     }
     else if (statsTab === "cardio") fillCardioStats(workouts);
     else fillStrengthStats(workouts);
@@ -2482,10 +2495,17 @@
     bindFriends();
   }
 
+  // Inner HTML for an avatar chip: animal tile if the user picked one,
+  // otherwise their initial. Delegates to Auth so all chips render the same.
+  function avatarInnerHtml(av, name) {
+    const A = global.Auth || {};
+    return A.avatarInner ? A.avatarInner(av, name) : escapeHtml((String(name || "?").charAt(0) || "?").toUpperCase());
+  }
+
   function friendChipHtml(f) {
     return `
       <button class="fr-chip js-friend" data-id="${f.id}" data-name="${escapeHtml(f.username)}" type="button">
-        <span class="fr-avatar">${escapeHtml((f.username || "?").slice(0, 1).toUpperCase())}</span>
+        <span class="fr-avatar">${avatarInnerHtml(f.avatar, f.username)}</span>
         <span class="fr-chip-info">
           <span class="fr-chip-name">${escapeHtml(f.username)}</span>
           <span class="fr-chip-meta">${f.workouts || 0} entrenos · ${f.streak || 0} d racha</span>
@@ -2498,11 +2518,12 @@
   // do I stand?", which needs me in the table. Top 10 by default.
   function boardHtml(friends) {
     const all = [];
-    friends.forEach((f) => (f.lifts || []).forEach((l) => all.push({ ...l, who: f.username, mine: false })));
+    friends.forEach((f) => (f.lifts || []).forEach((l) => all.push({ ...l, who: f.username, avatar: f.avatar || "", mine: false })));
     // My bests come straight from local data (buildBoard), so they show even
     // before a sync and even if I have no friends yet.
     const meName = (global.Auth && Auth.username) || "Tú";
-    (global.__buildBoard ? global.__buildBoard().lifts : []).forEach((l) => all.push({ ...l, who: meName, mine: true }));
+    const meAvatar = (global.Auth && Auth.avatar) || "";
+    (global.__buildBoard ? global.__buildBoard().lifts : []).forEach((l) => all.push({ ...l, who: meName, avatar: meAvatar, mine: true }));
     all.sort((a, b) => b.weight - a.weight);
     if (!all.length) {
       return `<div class="empty-hint"><span class="emoji">🏋️</span>Aún no hay marcas publicadas.<br>Registra entrenos de fuerza y aquí competiréis.</div>`;
@@ -2522,7 +2543,7 @@
           <div class="fr-row${r.mine ? " is-me" : ""}">
             <span class="fr-rank${i < 3 ? " is-top" : ""}">${i + 1}</span>
             ${frExHtml(r)}
-            <span class="fr-who">${r.mine ? "Tú" : escapeHtml(r.who)}</span>
+            <span class="fr-who"><span class="fr-avatar xs">${avatarInnerHtml(r.avatar, r.who)}</span>${r.mine ? "Tú" : escapeHtml(r.who)}</span>
             <span class="fr-mark"><b>${fmtNum(r.weight)} kg</b>${r.reps ? `<span>× ${r.reps}</span>` : ""}</span>
           </div>`).join("")}
       </div>
@@ -2614,7 +2635,7 @@
     openModal(`
       <div class="modal-head">
         <div class="fr-sheet-head">
-          <span class="fr-avatar">${escapeHtml((name || "?").slice(0, 1).toUpperCase())}</span>
+          <span class="fr-avatar">${avatarInnerHtml(f.avatar, name)}</span>
           <div>
             <h2>${escapeHtml(name)}</h2>
             <p>${f.workouts || 0} entrenos · ${f.streak || 0} días de racha</p>
@@ -4066,10 +4087,17 @@
     return ms ? new Date(ms).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }) : "—";
   }
 
+  // Animal avatar tiles bundled in assets/avatars/ (game-icons.net, CC BY 3.0).
+  // Ids must match the SVG filenames — the server validates against them too.
+  const AVATARS = [
+    ["gorila", "Gorila"], ["oso", "Oso"], ["toro", "Toro"], ["lobo", "Lobo"],
+    ["leon", "León"], ["tigre", "Tigre"], ["aguila", "Águila"], ["elefante", "Elefante"],
+    ["tiburon", "Tiburón"], ["zorro", "Zorro"], ["jabali", "Jabalí"], ["panda", "Panda"],
+  ];
+
   function openProfile() {
     const A = global.Auth || {};
     const uname = A.username || "";
-    const initial = (uname || "?").charAt(0).toUpperCase();
     const workouts = DB.get().workouts || [];
     const days = new Set(workouts.map((w) => w.date).filter(Boolean)).size;
     const totalVol = workouts.reduce((a, w) => a + DB.workoutVolume(w), 0);
@@ -4080,7 +4108,10 @@
     openModal(`
       <div class="modal-head">
         <div class="profile-id">
-          <span class="account-avatar lg">${initial}</span>
+          <button class="avatar-edit" id="pfAvatarBtn" type="button" title="Cambiar avatar" aria-label="Cambiar avatar">
+            <span class="account-avatar lg">${avatarInnerHtml(A.avatar, uname)}</span>
+            <span class="avatar-edit-badge"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17l-1 3zM14.5 7.5l2 2" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </button>
           <div style="min-width:0">
             <h2 style="margin:0">${escapeHtml(uname) || "Perfil"}</h2>
             <p style="margin:2px 0 0">${backend ? "Miembro desde " + fmtLongDate(A.createdAt) : "Modo local (sin cuenta)"}</p>
@@ -4099,6 +4130,7 @@
         <button class="btn btn-ghost btn-sm" id="pfSync"><svg viewBox="0 0 24 24" fill="none"><path d="M21 12a9 9 0 0 1-15 6.7L3 16M3 12a9 9 0 0 1 15-6.7L21 8M21 4v4h-4M3 20v-4h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Sincronizar</button>
       </div>` : ""}
       <div class="profile-actions">
+        <button class="btn btn-ghost btn-block" id="pfAvatar"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M9 10.2v1M15 10.2v1M9 14.5c.8.9 1.8 1.4 3 1.4s2.2-.5 3-1.4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>Cambiar avatar</button>
         ${backend ? `<button class="btn btn-ghost btn-block" id="pfPublished"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Entrenos publicados<span class="pf-count" id="pfPubCount"></span></button>` : ""}
         <button class="btn btn-ghost btn-block" id="pfExport"><svg viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4M4 19h16" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Exportar copia de seguridad</button>
         <button class="btn btn-ghost btn-block" id="pfImport"><svg viewBox="0 0 24 24"><path d="M12 15V3M8 7l4-4 4 4M4 19h16" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Importar copia</button>
@@ -4108,6 +4140,8 @@
       </div>
     `);
     $("#closePf").addEventListener("click", closeModal);
+    $("#pfAvatarBtn").addEventListener("click", openAvatarPicker);
+    $("#pfAvatar").addEventListener("click", openAvatarPicker);
     const ppub = $("#pfPublished");
     if (ppub) {
       ppub.addEventListener("click", openPublishedWorkouts);
@@ -4123,6 +4157,49 @@
     const pl = $("#pfLogout"); if (pl) pl.addEventListener("click", () => { if (A.logout) A.logout(); });
     const pd = $("#pfDelete"); if (pd) pd.addEventListener("click", openDeleteAccount);
     if (A.paintSync) A.paintSync();   // reflect the real current status in the sheet
+  }
+
+  // Avatar picker: the bundled animal tiles plus "initial" to clear. Saving
+  // goes through Auth.setAvatar (server first when logged in), then repaints
+  // every place the avatar shows — including the friends view if it's open,
+  // since my own board rows carry it.
+  function openAvatarPicker() {
+    const A = global.Auth || {};
+    const cur = A.avatar || "";
+    openModal(`
+      <div class="modal-head">
+        <div><h2>Elige tu avatar</h2><p>Tus amigos lo verán en el tablón.</p></div>
+        <button class="icon-btn" id="avClose"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="av-grid">
+        <button class="av-cell${cur === "" ? " is-current" : ""}" data-av="" type="button">
+          <span class="account-avatar">${escapeHtml((A.username || "?").charAt(0).toUpperCase())}</span>
+          <span>Inicial</span>
+        </button>
+        ${AVATARS.map(([id, label]) => `
+          <button class="av-cell${cur === id ? " is-current" : ""}" data-av="${id}" type="button">
+            <img src="assets/avatars/${id}.svg" alt="${label}" draggable="false">
+            <span>${label}</span>
+          </button>`).join("")}
+      </div>
+      <p class="av-credit">Iconos de <a href="https://game-icons.net" target="_blank" rel="noopener">game-icons.net</a> (CC BY 3.0)</p>
+    `);
+    $("#avClose").addEventListener("click", openProfile);
+    $$(".av-cell").forEach((cell) => cell.addEventListener("click", async () => {
+      if (cell.dataset.av === cur) return openProfile();   // no-op, just go back
+      $$(".av-cell").forEach((x) => { x.disabled = true; });
+      try {
+        await A.setAvatar(cell.dataset.av);
+        toast("Avatar actualizado", "success");
+        // My rows in the shared board show my tile: refresh if it's on screen.
+        const sb = $("#statsBody");
+        if (sb && sb.querySelector(".fr-add")) paintFriends();
+        openProfile();
+      } catch (err) {
+        toast(err.message || "No se pudo cambiar el avatar", "error");
+        $$(".av-cell").forEach((x) => { x.disabled = false; });
+      }
+    }));
   }
 
   // My published workouts, in one place, each removable. The ids come from the

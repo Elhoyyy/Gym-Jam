@@ -527,6 +527,34 @@ html.auth-pending .theme-toggle { display: none !important; }
 .account-info.clickable { cursor: pointer; border-radius: 8px; margin: -4px; padding: 4px; transition: background 0.14s; }
 .account-info.clickable:hover { background: var(--surface-2); }
 .account-avatar.lg { width: 46px; height: 46px; font-size: 19px; flex-shrink: 0; }
+
+/* Avatar change affordance in the profile sheet: the avatar itself is a button
+   with a little pencil badge. */
+.avatar-edit { position: relative; border: none; background: none; padding: 0; cursor: pointer; flex-shrink: 0; }
+.avatar-edit .account-avatar.lg { display: grid; }
+.avatar-edit-badge {
+  position: absolute; right: -5px; bottom: -5px; width: 19px; height: 19px; border-radius: 50%;
+  background: var(--surface); border: 1px solid var(--border-strong); color: var(--text-dim);
+  display: grid; place-items: center;
+}
+.avatar-edit-badge svg { width: 11px; height: 11px; }
+.avatar-edit:hover .avatar-edit-badge { color: var(--ink); border-color: var(--ink); }
+
+/* Avatar picker grid */
+.av-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 10px; margin: 16px 0 4px; }
+.av-cell {
+  display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 12px 4px 9px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);
+  cursor: pointer; font: inherit; font-size: 11.5px; font-weight: 600; color: var(--text-dim);
+  transition: border-color 0.14s, background 0.14s;
+}
+.av-cell:hover { background: var(--surface-2); border-color: var(--border-strong); }
+.av-cell:disabled { opacity: 0.55; cursor: default; }
+.av-cell.is-current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); color: var(--ink); }
+.av-cell img { width: 44px; height: 44px; border-radius: 12px; display: block; }
+.av-cell .account-avatar { width: 44px; height: 44px; border-radius: 12px; font-size: 18px; }
+.av-credit { font-size: 11px; color: var(--text-faint); text-align: center; margin-top: 14px; }
+.av-credit a { color: inherit; }
 .profile-id { display: flex; align-items: center; gap: 13px; min-width: 0; }
 .profile-id h2 { font-size: 20px; }
 .profile-id p { font-size: 12.5px; color: var(--text-dim); }
@@ -619,7 +647,11 @@ html.auth-pending .theme-toggle { display: none !important; }
   width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
   background: var(--accent); color: var(--accent-ink);
   font-family: "Space Grotesk"; font-size: 14px; font-weight: 700;
+  overflow: hidden;
 }
+/* Animal tiles (assets/avatars/) fill the chip; the chip's radius clips them. */
+.fr-avatar img, .account-avatar img { width: 100%; height: 100%; display: block; object-fit: cover; border-radius: inherit; }
+.fr-avatar.xs { width: 20px; height: 20px; font-size: 10px; }
 
 /* Friend chips — horizontal, scrollable, tap to open the sheet. */
 .fr-people { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 16px; scrollbar-width: none; }
@@ -680,7 +712,7 @@ html.auth-pending .theme-toggle { display: none !important; }
 .fr-row.is-me .fr-who { color: var(--accent); font-weight: 700; }
 .fr-ex { font-weight: 600; font-size: 14.5px; color: var(--ink); min-width: 0; }
 .fr-ex em { display: block; font-style: normal; font-size: 11.5px; font-weight: 600; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 1px; }
-.fr-who { font-size: 13px; color: var(--text-dim); font-weight: 600; }
+.fr-who { font-size: 13px; color: var(--text-dim); font-weight: 600; display: flex; align-items: center; gap: 7px; min-width: 0; }
 .fr-mark { text-align: right; }
 .fr-mark b { font-family: "Space Grotesk"; font-size: 15.5px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
 .fr-mark span { display: block; font-size: 11px; color: var(--text-faint); margin-top: 1px; font-variant-numeric: tabular-nums; }
