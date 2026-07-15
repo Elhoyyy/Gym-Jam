@@ -2398,12 +2398,24 @@
   let friendsSub = "tablon"; // "tablon" | "comparativa"
   let friendsGroup = "";     // muscle-group filter ("" = all)
 
+  // Boards/posts published before `gkey` existed only carry the display name
+  // ("Pecho"): recover the key from it so their labels still get coloured.
+  let gkeyByName = null;
+  function groupKeyOf(gkey, groupName) {
+    if (gkey && G[gkey]) return gkey;
+    if (!gkeyByName) {
+      gkeyByName = {};
+      Object.keys(G).forEach((k) => { gkeyByName[(G[k].name || "").toLowerCase()] = k; });
+    }
+    return gkeyByName[(groupName || "").toLowerCase()] || "";
+  }
+
   // Exercise name + its muscle group underneath, the group tinted with its own
-  // colour. `gkey` is missing on boards published before it existed, so fall
-  // back to the plain faint label rather than showing nothing.
+  // colour.
   function frExHtml(r) {
-    const color = (G[r.gkey] || {}).color;
-    const label = r.group || (G[r.gkey] || {}).name || "";
+    const key = groupKeyOf(r.gkey, r.group);
+    const color = (G[key] || {}).color;
+    const label = r.group || (G[key] || {}).name || "";
     return `<span class="fr-ex">${escapeHtml(r.name)}${
       label ? `<em${color ? ` style="color:${color}"` : ""}>${escapeHtml(label)}</em>` : ""
     }</span>`;
@@ -2658,10 +2670,12 @@
     const vol = (p.entries || []).reduce((a, en) => a +
       (en.sets || []).reduce((b, s) => b + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0), 0);
     const title = (p.title || "").trim();
-    const exs = (p.entries || []).map((en) => `
+    const exs = (p.entries || []).map((en) => {
+      const gk = groupKeyOf(en.gkey, en.group);
+      return `
       <div class="fr-post-ex">
         <div class="fr-post-ex-name">${
-          (G[en.gkey] || {}).color ? `<span class="ex-dot" style="background:${(G[en.gkey]).color}"></span>` : ""
+          (G[gk] || {}).color ? `<span class="ex-dot" style="background:${(G[gk]).color}"></span>` : ""
         }${escapeHtml(en.name)}</div>
         <div class="fr-post-sets">${(en.sets || []).map((s) => {
           if (s.km || s.min) {
@@ -2670,7 +2684,8 @@
           if (!s.weight) return `<span class="set-pill"><b>${s.reps || 0}</b> reps</span>`;
           return `<span class="set-pill"><b>${fmtNum(s.weight)}</b>kg × <b>${s.reps || 0}</b></span>`;
         }).join("")}</div>
-      </div>`).join("");
+      </div>`;
+    }).join("");
     return `
       <div class="fr-post">
         <button class="fr-post-top" type="button">

@@ -730,18 +730,21 @@ html.auth-pending .theme-toggle { display: none !important; }
 }
 @media (max-width: 720px) {
   .fr-add-grid { grid-template-columns: 1fr; gap: 14px; }
-  /* Drop the rank column and stack the name under the exercise instead of
-     squeezing four columns into a phone. */
-  .fr-row { grid-template-columns: 1fr auto; row-gap: 3px; padding: 12px 14px; }
-  .fr-rank { display: none; }
-  .fr-who { grid-column: 1; font-size: 12px; }
-  .fr-mark { grid-column: 2; grid-row: 1 / span 2; }
+  /* Slim rank column + the who stacked under the exercise: four desktop
+     columns become three without losing the 1-2-3 ranking. */
+  .fr-row { grid-template-columns: 20px 1fr auto; row-gap: 3px; padding: 12px 14px; }
+  .fr-rank { grid-column: 1; grid-row: 1 / span 2; align-self: center; }
+  .fr-ex { grid-column: 2; }
+  .fr-who { grid-column: 2; font-size: 12px; }
+  .fr-mark { grid-column: 3; grid-row: 1 / span 2; }
+  /* Friend sheet rows have no rank/who: plain two columns. */
   .fr-row-2 { grid-template-columns: 1fr auto; }
-  .fr-row-2 .fr-mark { grid-row: auto; }
+  .fr-row-2 .fr-ex { grid-column: 1; }
+  .fr-row-2 .fr-mark { grid-column: 2; grid-row: auto; }
   /* Comparison keeps both marks side by side — that IS the row. */
   .fr-vs-row { grid-template-columns: 1fr auto auto; }
-  .fr-vs-row .fr-mark { grid-row: auto; }
   .fr-vs-row .fr-ex { grid-column: 1 / -1; }
+  .fr-vs-row .fr-mark { grid-column: auto; grid-row: auto; }
   .fr-head { display: none; }
 }
 
