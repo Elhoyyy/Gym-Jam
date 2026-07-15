@@ -2493,14 +2493,19 @@
       </button>`;
   }
 
-  // The board: every friend's lifts in one ranking, heaviest first. Top 10 by
-  // default — the point is the podium, not an exhaustive dump.
+  // The board: my lifts AND every friend's in one ranking, heaviest first. My
+  // own rows are flagged so they can be highlighted — the whole point is "where
+  // do I stand?", which needs me in the table. Top 10 by default.
   function boardHtml(friends) {
     const all = [];
-    friends.forEach((f) => (f.lifts || []).forEach((l) => all.push({ ...l, who: f.username })));
+    friends.forEach((f) => (f.lifts || []).forEach((l) => all.push({ ...l, who: f.username, mine: false })));
+    // My bests come straight from local data (buildBoard), so they show even
+    // before a sync and even if I have no friends yet.
+    const meName = (global.Auth && Auth.username) || "Tú";
+    (global.__buildBoard ? global.__buildBoard().lifts : []).forEach((l) => all.push({ ...l, who: meName, mine: true }));
     all.sort((a, b) => b.weight - a.weight);
     if (!all.length) {
-      return `<div class="empty-hint"><span class="emoji">🏋️</span>Tus amigos aún no han publicado ninguna marca.</div>`;
+      return `<div class="empty-hint"><span class="emoji">🏋️</span>Aún no hay marcas publicadas.<br>Registra entrenos de fuerza y aquí competiréis.</div>`;
     }
     const filter = groupFilterHtml(all);
     const rows = friendsGroup ? all.filter((r) => r.gkey === friendsGroup) : all;
@@ -2514,10 +2519,10 @@
       <div class="fr-table">
         <div class="fr-row fr-head"><span>#</span><span>Ejercicio</span><span>Quién</span><span>Marca</span></div>
         ${shown.map((r, i) => `
-          <div class="fr-row">
+          <div class="fr-row${r.mine ? " is-me" : ""}">
             <span class="fr-rank${i < 3 ? " is-top" : ""}">${i + 1}</span>
             ${frExHtml(r)}
-            <span class="fr-who">${escapeHtml(r.who)}</span>
+            <span class="fr-who">${r.mine ? "Tú" : escapeHtml(r.who)}</span>
             <span class="fr-mark"><b>${fmtNum(r.weight)} kg</b>${r.reps ? `<span>× ${r.reps}</span>` : ""}</span>
           </div>`).join("")}
       </div>
@@ -4094,6 +4099,7 @@
         <button class="btn btn-ghost btn-sm" id="pfSync"><svg viewBox="0 0 24 24" fill="none"><path d="M21 12a9 9 0 0 1-15 6.7L3 16M3 12a9 9 0 0 1 15-6.7L21 8M21 4v4h-4M3 20v-4h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Sincronizar</button>
       </div>` : ""}
       <div class="profile-actions">
+        ${backend ? `<button class="btn btn-ghost btn-block" id="pfPublished"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Entrenos publicados<span class="pf-count" id="pfPubCount"></span></button>` : ""}
         <button class="btn btn-ghost btn-block" id="pfExport"><svg viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4M4 19h16" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Exportar copia de seguridad</button>
         <button class="btn btn-ghost btn-block" id="pfImport"><svg viewBox="0 0 24 24"><path d="M12 15V3M8 7l4-4 4 4M4 19h16" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Importar copia</button>
         ${backend ? `<button class="btn btn-ghost btn-block" id="pfPass"><svg viewBox="0 0 24 24"><path d="M6 10V8a6 6 0 1112 0v2M5 10h14v10H5z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Cambiar contraseña</button>` : ""}
@@ -4102,6 +4108,14 @@
       </div>
     `);
     $("#closePf").addEventListener("click", closeModal);
+    const ppub = $("#pfPublished");
+    if (ppub) {
+      ppub.addEventListener("click", openPublishedWorkouts);
+      // Fill the little count once we know it, without blocking the sheet.
+      Auth.api("/api/posts/mine", { auth: true })
+        .then((d) => { const c = $("#pfPubCount"); if (c) c.textContent = (d.ids || []).length || ""; })
+        .catch(() => {});
+    }
     $("#pfExport").addEventListener("click", exportBackup);
     $("#pfImport").addEventListener("click", confirmImportBackup);
     const sy = $("#pfSync"); if (sy) sy.addEventListener("click", () => { if (A.forceSync) A.forceSync(); });
@@ -4109,6 +4123,59 @@
     const pl = $("#pfLogout"); if (pl) pl.addEventListener("click", () => { if (A.logout) A.logout(); });
     const pd = $("#pfDelete"); if (pd) pd.addEventListener("click", openDeleteAccount);
     if (A.paintSync) A.paintSync();   // reflect the real current status in the sheet
+  }
+
+  // My published workouts, in one place, each removable. The ids come from the
+  // server (source of truth for what's live); the bodies are rebuilt from local
+  // data via postFromWorkout, so this reads the same as a friend would see it.
+  async function openPublishedWorkouts() {
+    openModal(`
+      <div class="modal-head">
+        <div><h2>Entrenos publicados</h2><p>Esto es lo que tus amigos pueden ver. Quítalo cuando quieras.</p></div>
+        <button class="icon-btn" id="pwClose"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div id="pwBody"><div class="empty-hint">Cargando…</div></div>
+    `);
+    $("#pwClose").addEventListener("click", openProfile);
+    renderPublishedList();
+  }
+
+  async function renderPublishedList() {
+    const body = $("#pwBody");
+    if (!body) return;
+    let ids;
+    try { ids = (await Auth.api("/api/posts/mine", { auth: true })).ids || []; }
+    catch (_) { body.innerHTML = `<div class="empty-hint">No se pudo cargar. ¿Sin conexión?</div>`; return; }
+    // Keep the local publishedIds set in step with the server.
+    publishedIds = new Set(ids);
+    // Only ids that still exist locally can be shown; a workout deleted locally
+    // but left published server-side gets a minimal fallback row.
+    const posts = ids.map((id) => {
+      const w = DB.workoutById(id);
+      return w ? postFromWorkout(w, w.name || "") : { id, date: "", title: "(entreno eliminado)", entries: [] };
+    });
+    if (!posts.length) {
+      body.innerHTML = `<div class="empty-hint"><span class="emoji">🔒</span>No tienes ningún entreno publicado.<br>Publícalos desde el historial.</div>`;
+      return;
+    }
+    body.innerHTML = posts.map((p) => `
+      <div class="pw-item">
+        ${friendPostHtml(p)}
+        <button class="btn btn-danger btn-sm pw-unpub" data-id="${escapeHtml(p.id)}">Despublicar</button>
+      </div>`).join("");
+    $$("#pwBody .fr-post-top").forEach((top) => {
+      top.addEventListener("click", () => top.closest(".fr-post").classList.toggle("is-open"));
+    });
+    $$("#pwBody .pw-unpub").forEach((b) => b.addEventListener("click", async () => {
+      const id = b.dataset.id;
+      b.disabled = true;
+      try {
+        await Auth.api("/api/posts/" + encodeURIComponent(id), { method: "DELETE", auth: true });
+        publishedIds.delete(id);
+        toast("Entreno despublicado", "success");
+        renderPublishedList();
+      } catch (err) { b.disabled = false; toast(err.message || "No se pudo despublicar", "error"); }
+    }));
   }
 
   function exportBackup() {
