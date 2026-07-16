@@ -136,9 +136,16 @@
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   }
 
+  // Base list + the auto-generated extended catalog (js/exercise-extra.js).
+  // Read lazily: load() runs after all scripts are parsed, but this file may
+  // be evaluated before exercise-extra.js.
+  function allDefaults() {
+    return DEFAULT_EXERCISES.concat(global.EXERCISE_EXTRA || []);
+  }
+
   /* --- Default state ---------------------------------------- */
   function seedExercises() {
-    return DEFAULT_EXERCISES.map(([name, group, flags]) => ({
+    return allDefaults().map(([name, group, flags]) => ({
       id: uid(), name, group, custom: false, ...(flags || {}),
     }));
   }
@@ -179,7 +186,7 @@
       state.exercises.map((e) => (e.name || "").toLowerCase() + "|" + e.group)
     );
     let added = 0;
-    DEFAULT_EXERCISES.forEach(([name, group, flags]) => {
+    allDefaults().forEach(([name, group, flags]) => {
       const key = name.toLowerCase() + "|" + group;
       if (!seen.has(key)) {
         state.exercises.push({ id: uid(), name, group, custom: false, ...(flags || {}) });

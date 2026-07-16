@@ -678,11 +678,17 @@ async function handleApi(req, res, url) {
     return sendJSON(res, 201, { ok: true, id: post.id });
   }
 
-  // Which of my workouts are currently published (so the UI can show the state).
+  // Which of my workouts are currently published (so the UI can show the state),
+  // plus the stored bodies: the profile list must show the post exactly as
+  // friends see it (the title typed at publish time lives only here, not in the
+  // local workout).
   if (path === "/api/posts/mine" && req.method === "GET") {
     const user = authUser(req);
     if (!user) return sendJSON(res, 401, { error: "No autorizado" });
-    return sendJSON(res, 200, { ids: q.myPostIds.all(user.id).map((r) => r.workout_id) });
+    const posts = q.postsOf.all(user.id).map((r) => {
+      try { return JSON.parse(r.body); } catch { return null; }
+    }).filter(Boolean);
+    return sendJSON(res, 200, { ids: q.myPostIds.all(user.id).map((r) => r.workout_id), posts });
   }
 
   // Unpublish. Publishing must be reversible or it isn't really a choice.

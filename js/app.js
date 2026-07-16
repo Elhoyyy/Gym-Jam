@@ -4220,14 +4220,19 @@
   async function renderPublishedList() {
     const body = $("#pwBody");
     if (!body) return;
-    let ids;
-    try { ids = (await Auth.api("/api/posts/mine", { auth: true })).ids || []; }
+    let ids, serverPosts;
+    try {
+      const r = await Auth.api("/api/posts/mine", { auth: true });
+      ids = r.ids || [];
+      serverPosts = r.posts;
+    }
     catch (_) { body.innerHTML = `<div class="empty-hint">No se pudo cargar. ¿Sin conexión?</div>`; return; }
     // Keep the local publishedIds set in step with the server.
     publishedIds = new Set(ids);
-    // Only ids that still exist locally can be shown; a workout deleted locally
-    // but left published server-side gets a minimal fallback row.
-    const posts = ids.map((id) => {
+    // Prefer the stored bodies: they carry the title typed at publish time and
+    // are exactly what friends see. Fallback (server without bodies yet):
+    // rebuild from local data; a workout deleted locally gets a minimal row.
+    const posts = Array.isArray(serverPosts) ? serverPosts : ids.map((id) => {
       const w = DB.workoutById(id);
       return w ? postFromWorkout(w, w.name || "") : { id, date: "", title: "(entreno eliminado)", entries: [] };
     });
