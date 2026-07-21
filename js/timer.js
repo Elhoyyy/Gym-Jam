@@ -39,6 +39,35 @@
       }
     } catch (_) {}
     if (navigator.vibrate) { try { navigator.vibrate([200, 100, 200]); } catch (_) {} }
+    notifyRestOver();
+  }
+
+  // System notification for when rest ends while the app isn't in view — the
+  // beep/vibration above already cover the foreground case. Never prompts for
+  // permission here: that only happens on an explicit user gesture (starting
+  // a rest timer), so the first ask isn't a surprise popup on page load.
+  function notifyRestOver() {
+    if (!document.hidden) return;
+    if (!("Notification" in global) || Notification.permission !== "granted") return;
+    try {
+      const n = new Notification("¡Descanso terminado!", {
+        body: "Toca para volver a Gym&Jam y sigue con la siguiente serie.",
+        icon: "/assets/icon-192.png",
+        badge: "/assets/icon-192.png",
+        tag: "gymjam-rest",
+        renotify: true,
+      });
+      n.onclick = () => { global.focus(); n.close(); };
+    } catch (_) {}
+  }
+
+  // Ask for notification permission once, on the first deliberate rest-timer
+  // start — never unprompted on load. Silently no-ops if unsupported, denied,
+  // or already decided.
+  function maybeAskPermission() {
+    if (!("Notification" in global)) return;
+    if (Notification.permission !== "default") return;
+    try { Notification.requestPermission(); } catch (_) {}
   }
 
   function mmss(s) {
@@ -115,6 +144,7 @@
   function startWith(seconds) {
     total = seconds; remaining = seconds; running = true;
     endAt = Date.now() + seconds * 1000; startTick(); render();
+    maybeAskPermission();
   }
   function togglePlay() {
     if (mode === "rest") {

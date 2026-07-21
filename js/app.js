@@ -1146,6 +1146,7 @@
       return `<button class="reuse-item" data-reuse="${w.id}">
         <span class="reuse-date"><b>${day}</b><span>${mon}</span></span>
         <span class="reuse-info">
+          ${w.name ? `<span class="reuse-name">${escapeHtml(w.name)}</span>` : ""}
           <span class="reuse-tags">${tags}</span>
           <span class="reuse-sub">${(w.entries || []).length} ejercicios · ${DB.workoutSetCount(w)} series · ${fmtNum(DB.workoutVolume(w))} kg</span>
         </span>
